@@ -15,8 +15,8 @@ def arguments():
   parser.add_argument("-v", "--videos", required=True, help="Path to the videos folder")
   parser.add_argument("-c", "--convert", action="store_false", help="Disable video conversion")
   parser.add_argument("-mx", "--mbits_max", type=int, default=25, help="Max bitrate for conversion (default: 25)")
-  parser.add_argument("-rx", "--ratio_max", type=int, default=0.70, help="Max ratio of bitrate for conversion (default: 0.70)")
-  parser.add_argument("-bm", "--bitratemodifier", type=int, default=0.12, help="Bitrate modifier for conversion (default: 0.12)")
+  parser.add_argument("-rx", "--ratio_max", type=float, default=0.70, help="Max ratio of bitrate for conversion (default: 0.70)")
+  parser.add_argument("-bm", "--bitratemodifier", type=float, default=0.12, help="Bitrate modifier for conversion (default: 0.12)")
   args = parser.parse_args()
   config = vars(args)
   return config
@@ -29,8 +29,8 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max):
   file = FFProbe(source)
 
   bitrate = int(file.streams[0].coded_height) * int(file.streams[0].coded_width) * int(file.streams[0].framerate)
-  mbits = round(bitrate /1024/1024 * bitratemodifier)
-  mbits_limit = round(int(file.streams[0].bit_rate)/1024/1024*ratio_max)
+  mbits = int(round(bitrate /1024/1024 * bitratemodifier))
+  mbits_limit = int(round(int(file.streams[0].bit_rate)/1024/1024*ratio_max))
 
   if mbits > mbits_limit:
     mbits = mbits_limit
