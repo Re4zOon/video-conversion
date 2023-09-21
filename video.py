@@ -74,7 +74,7 @@ def videostofolders(contents, path):
       if sequence in file:
         os.rename(path + "/" + file, path + "/" + sequence + '/' + file)
 
-def convertVideos(path, bitratemodifier, mbits_max, ratio_max):
+def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max):
 
   _listOfSequences = os.listdir(args["videos"])
   _listOfSequences.sort()
@@ -94,14 +94,29 @@ def convertVideos(path, bitratemodifier, mbits_max, ratio_max):
     file = FFProbe(source)
     if len(file.streams) > 2:
       if file.streams[3].codec_name == 'bin_data':
-        bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) -init_hw_device qsv=hw -c copy -c:v hevc_qsv -b:v ' + bitrate + ' -preset slower -look_ahead 1 -map 0:0 -map 0:1 -map 0:3 ' + destination)
+        bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + bitrate + ' -preset slower -look_ahead 1 -map 0:0 -map 0:1 -map 0:3 ' + destination)
         bash_command('udtacopy ' + source + ' ' + destination)
       else:
         print("More, than 2 streams, but no bin_data")
         exit(1)
     else:
-      bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) -init_hw_device qsv=hw -c copy -c:v hevc_qsv -b:v ' + bitrate + ' -preset slower -look_ahead 1 -map 0:0 -map 0:1 ' + destination)
+      bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + bitrate + ' -preset slower -look_ahead 1 -map 0:0 -map 0:1 ' + destination)
     shutil.copystat(source, destination)
+
+def getOptions(codec, accelerator):
+
+  if accelerator == "qsv":
+    if codec == "h265":
+      options = "-init_hw_device qsv=hw -c copy -c:v hevc_qsv"
+    else:
+      options = "-init_hw_device qsv=hw -c copy -c:v h264_qsv"
+  else:
+    if codec == "h265":
+      options = "-c copy -c:v libx265"
+    else:
+      options = "-c copy -c:v libx264"
+
+  return options
 
 if __name__ == '__main__':
 
@@ -112,5 +127,7 @@ if __name__ == '__main__':
 
   videostofolders(contents, args["videos"])
 
+  options = getOptions(args["codec"], args["acceleration"])
+
   if args["convert"]:
-    convertVideos(args["videos"], args["bitratemodifier"], args["mbits_max"], args["ratio_max"])
+    convertVideos(args["videos"], options, args["bitratemodifier"], args["mbits_max"], args["ratio_max"])
