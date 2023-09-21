@@ -11,7 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-v", "/home/sat"]
+            "args": ["-v", "/Plex/asd/qsnormal"]
         }
     ]
 }

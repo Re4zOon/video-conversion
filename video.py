@@ -14,14 +14,31 @@ def arguments():
   parser = argparse.ArgumentParser(description="GoPro video compressor", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument("-v", "--videos", required=True, help="Path to the videos folder")
   parser.add_argument("-c", "--convert", action="store_false", help="Disable video conversion")
-  parser.add_argument("-g", "--gopro", action="store_false", help="Disable gopro specific stuff")
-  parser.add_argument("-crf", "--crf-setting", type=int, default=25, help="CRF setting for target filesize (default: 25)")
+  parser.add_argument("-bm", "--bitratemodifier", type=int, default=0.12, help="Bitrate modifier for conversion (default: 0.12)")
+  parser.add_argument("-mx", "--mbits_max", type=int, default=25, help="Max bitrate for conversion (default: 25)")
   args = parser.parse_args()
   config = vars(args)
   return config
 
 def bash_command(cmd):
   subprocess.run(['/bin/bash', '-c', cmd])
+
+def calculateBitrate(source, bitratemodifier, mbits_max):
+
+  file = FFProbe(source)
+
+  bitrate = int(file.streams[0].coded_height) * int(file.streams[0].coded_width) * int(file.streams[0].framerate)
+  mbits = round(bitrate /1024/1024 * bitratemodifier)
+  mbits_limit = round(int(file.streams[0].bit_rate)/1024/1024*0.75)
+
+  if mbits > mbits_limit:
+    mbits = mbits_limit
+
+  if mbits > mbits_max:
+    mbits = mbits_max
+
+  result = str(mbits) + 'M'
+  return result
 
 def videostofolders(contents, path):
 
@@ -40,11 +57,11 @@ def videostofolders(contents, path):
 
   # Getting all unique sequences
   for file in files:
-    if any("GH" in word for word in contents) or any("GX" in word for word in contents):
-      if file[4:][:4] not in listOfSequences:
-        listOfSequences.append(file[4:][:4])
-    elif file[:4] not in listOfSequences:
-      listOfSequences.append(file[:4])
+    if "GH" in file or "GX" in file:
+      if file[4:][:-4] not in listOfSequences:
+        listOfSequences.append(file[4:][:-4])
+    elif file[:-4] not in listOfSequences:
+      listOfSequences.append(file[:-4])
 
   # Creating folders for each sequence
   for sequence in listOfSequences:
@@ -53,10 +70,10 @@ def videostofolders(contents, path):
   # Moving files to their respective folders
   for sequence in listOfSequences:
     for file in files:
-      if any(sequence in word for word in file):
+      if sequence in file:
         os.rename(path + "/" + file, path + "/" + sequence + '/' + file)
 
-def convertVideos(path, crf):
+def convertVideos(path, bitratemodifier, mbits_max):
 
   _listOfSequences = os.listdir(args["videos"])
   _listOfSequences.sort()
@@ -68,16 +85,21 @@ def convertVideos(path, crf):
     files.sort()
     source = str(path + "/" + sequence + '/' + files[0])
     destination = str(path + '/' + files[0])
+    bitrate = calculateBitrate(source, bitratemodifier, mbits_max)
     print()
     print()
     print()
     print("Sequence: " + sequence)
     file = FFProbe(source)
-    if file.streams[3].codec_name == 'bin_data':
-      bash_command('cd ' + path + "/" + sequence + ';ffmpeg -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) -init_hw_device qsv=hw -c copy -c:v hevc_qsv -crf ' + crf + ' -preset slow -map 0:0 -map 0:1 -map 0:3 ' + destination)
-      bash_command('udtacopy ' + source + ' ' + destination)
+    if len(file.streams) > 2:
+      if file.streams[3].codec_name == 'bin_data':
+        bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) -init_hw_device qsv=hw -c copy -c:v hevc_qsv -b:v ' + bitrate + ' -preset slower -look_ahead 1 -map 0:0 -map 0:1 -map 0:3 ' + destination)
+        bash_command('udtacopy ' + source + ' ' + destination)
+      else:
+        print("More, than 2 streams, but no bin_data")
+        exit(1)
     else:
-      bash_command('cd ' + path + "/" + sequence + ';ffmpeg -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) -init_hw_device qsv=hw -c copy -c:v hevc_qsv -crf ' + crf + ' -preset slow -map 0:0 -map 0:1 ' + destination)
+      bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) -init_hw_device qsv=hw -c copy -c:v hevc_qsv -b:v ' + bitrate + ' -preset slower -look_ahead 1 -map 0:0 -map 0:1 ' + destination)
     shutil.copystat(source, destination)
 
 if __name__ == '__main__':
@@ -90,4 +112,4 @@ if __name__ == '__main__':
   videostofolders(contents, args["videos"])
 
   if args["convert"]:
-    convertVideos(args["videos"], args["crf-setting"])
+    convertVideos(args["videos"], args["bitratemodifier"], args["mbits_max"])
