@@ -14,7 +14,8 @@ def arguments():
   parser = argparse.ArgumentParser(description="GoPro video compressor", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument("-v", "--videos", required=True, help="Path to the videos folder")
   parser.add_argument("-c", "--convert", action="store_false", help="Disable video conversion")
-  parser.add_argument("-crf", "--crf", type=int, default=18, help="CRF setting for target filesize (default: 18)")
+  parser.add_argument("-g", "--gopro", action="store_false", help="Disable gopro specific stuff")
+  parser.add_argument("-crf", "--crf", type=int, default=25, help="CRF setting for target filesize (default: 25)")
   args = parser.parse_args()
   config = vars(args)
   return config
@@ -83,7 +84,8 @@ if __name__ == '__main__':
   contents = os.listdir(args["videos"])
   contents.sort()
 
-  videostofolders(contents, args["videos"])
+  if args["gopro"]:
+    videostofolders(contents, args["videos"])
 
   if args["convert"]:
     convertVideos(args["videos"], args["crf"])
