@@ -15,7 +15,7 @@ def arguments():
   parser.add_argument("-v", "--videos", required=True, help="Path to the videos folder")
   parser.add_argument("-c", "--convert", action="store_false", help="Disable video conversion")
   parser.add_argument("-mx", "--mbits_max", type=int, default=25, help="Max bitrate for conversion (default: 25)")
-  parser.add_argument("-rx", "--ratio_max", type=int, default=0.65, help="Max ratio of bitrate for conversion (default: 0.65)")
+  parser.add_argument("-rx", "--ratio_max", type=int, default=0.70, help="Max ratio of bitrate for conversion (default: 0.70)")
   parser.add_argument("-bm", "--bitratemodifier", type=int, default=0.12, help="Bitrate modifier for conversion (default: 0.12)")
   args = parser.parse_args()
   config = vars(args)
