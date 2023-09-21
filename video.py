@@ -13,17 +13,16 @@ def arguments():
 
   parser = argparse.ArgumentParser(description="GoPro video compressor", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument("-v", "--videos", required=True, help="Path to the videos folder")
-  parser.add_argument("-C", "--convert", action="store_false", help="Disable video conversion")
   parser.add_argument("-c", "--codec", type=str, default="h265", choices=['h265', 'h264'], help="Choose codec (default: h265)")
   parser.add_argument("-a", "--accelerator", type=str, default="qsv", choices=['qsv', 'cpu'], help="Choose accelerator (default: qsv)")
-  parser.add_argument("-c", "--convert", action="store_false", help="Disable video conversion")
+  parser.add_argument("-C", "--convert", action="store_false", help="Disable video conversion")
   parser.add_argument("-mx", "--mbits_max", type=int, default=25, help="Max bitrate for conversion (default: 25)")
   parser.add_argument("-rx", "--ratio_max", type=float, default=0.70, help="Max ratio of bitrate for conversion (default: 0.70)")
   parser.add_argument("-bm", "--bitratemodifier", type=float, default=0.12, help="Bitrate modifier for conversion (default: 0.12)")
   args = parser.parse_args()
   config = vars(args)
   return config
-codec, accelerator
+
 def bash_command(cmd):
   subprocess.run(['/bin/bash', '-c', cmd])
 
@@ -111,12 +110,12 @@ def getOptions(codec, accelerator):
   if accelerator == "qsv":
     if codec == "h265":
       options = "-init_hw_device qsv=hw -c copy -c:v hevc_qsv"
-    else:
+    elif codec == "h264":
       options = "-init_hw_device qsv=hw -c copy -c:v h264_qsv"
-  else:
+  elif accelerator == "cpu":
     if codec == "h265":
       options = "-c copy -c:v libx265"
-    else:
+    elif codec == "h264":
       options = "-c copy -c:v libx264"
 
   return options
@@ -130,7 +129,7 @@ if __name__ == '__main__':
 
   videostofolders(contents, args["videos"])
 
-  options = getOptions(args["codec"], args["acceleration"])
+  options = getOptions(args["codec"], args["accelerator"])
 
   if args["convert"]:
     convertVideos(args["videos"], options, args["bitratemodifier"], args["mbits_max"], args["ratio_max"])
