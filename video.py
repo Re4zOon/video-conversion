@@ -14,8 +14,9 @@ def arguments():
   parser = argparse.ArgumentParser(description="GoPro video compressor", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument("-v", "--videos", required=True, help="Path to the videos folder")
   parser.add_argument("-c", "--convert", action="store_false", help="Disable video conversion")
-  parser.add_argument("-bm", "--bitratemodifier", type=int, default=0.12, help="Bitrate modifier for conversion (default: 0.12)")
   parser.add_argument("-mx", "--mbits_max", type=int, default=25, help="Max bitrate for conversion (default: 25)")
+  parser.add_argument("-rx", "--ratio_max", type=int, default=0.65, help="Max ratio of bitrate for conversion (default: 0.65)")
+  parser.add_argument("-bm", "--bitratemodifier", type=int, default=0.12, help="Bitrate modifier for conversion (default: 0.12)")
   args = parser.parse_args()
   config = vars(args)
   return config
@@ -23,13 +24,13 @@ def arguments():
 def bash_command(cmd):
   subprocess.run(['/bin/bash', '-c', cmd])
 
-def calculateBitrate(source, bitratemodifier, mbits_max):
+def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max):
 
   file = FFProbe(source)
 
   bitrate = int(file.streams[0].coded_height) * int(file.streams[0].coded_width) * int(file.streams[0].framerate)
   mbits = round(bitrate /1024/1024 * bitratemodifier)
-  mbits_limit = round(int(file.streams[0].bit_rate)/1024/1024*0.75)
+  mbits_limit = round(int(file.streams[0].bit_rate)/1024/1024*ratio_max)
 
   if mbits > mbits_limit:
     mbits = mbits_limit
@@ -73,7 +74,7 @@ def videostofolders(contents, path):
       if sequence in file:
         os.rename(path + "/" + file, path + "/" + sequence + '/' + file)
 
-def convertVideos(path, bitratemodifier, mbits_max):
+def convertVideos(path, bitratemodifier, mbits_max, ratio_max):
 
   _listOfSequences = os.listdir(args["videos"])
   _listOfSequences.sort()
@@ -85,7 +86,7 @@ def convertVideos(path, bitratemodifier, mbits_max):
     files.sort()
     source = str(path + "/" + sequence + '/' + files[0])
     destination = str(path + '/' + files[0])
-    bitrate = calculateBitrate(source, bitratemodifier, mbits_max)
+    bitrate = calculateBitrate(source, bitratemodifier, mbits_max, ratio_max)
     print()
     print()
     print()
@@ -112,4 +113,4 @@ if __name__ == '__main__':
   videostofolders(contents, args["videos"])
 
   if args["convert"]:
-    convertVideos(args["videos"], args["bitratemodifier"], args["mbits_max"])
+    convertVideos(args["videos"], args["bitratemodifier"], args["mbits_max"], args["ratio_max"])
