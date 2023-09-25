@@ -30,8 +30,17 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max):
 
   file = FFProbe(source)
 
-  bitrate = int(file.streams[0].coded_height) * int(file.streams[0].coded_width) * int(file.streams[0].framerate)
-  mbits = int(round(bitrate /1024/1024 * bitratemodifier))
+  match file.streams[0].coded_height:
+    case "1080":
+      mbits = 15
+    case "1520":
+      mbits = 20
+    case "2160":
+      mbits = 25
+    case _:
+      bitrate = int(file.streams[0].coded_height) * int(file.streams[0].coded_width) * int(file.streams[0].framerate)
+      mbits = int(round(bitrate /1024/1024 * bitratemodifier))
+
   mbits_limit = int(round(int(file.streams[0].bit_rate)/1024/1024*ratio_max))
 
   if mbits > mbits_limit:
