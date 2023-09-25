@@ -49,7 +49,7 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max):
   if mbits > mbits_max:
     mbits = mbits_max
 
-  result = str(mbits) + 'M'
+  result = mbits*1024*1024
   return result
 
 def videostofolders(contents, path):
@@ -105,20 +105,20 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max):
     file = FFProbe(source)
     if len(file.streams) > 2:
       if file.streams[3].codec_name == 'bin_data':
-        bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + bitrate + ' -preset slower -look_ahead 1 -map 0:0 -map 0:1 -map 0:3 ' + destination)
+        bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + str(bitrate) + ' -maxrate ' + str(bitrate*1.5) + ' -bitrate_limit 0 -bufsize ' + str(bitrate*4) +' -fps_mode passthrough -g 120 -preset slower -look_ahead 1 -map 0:0 -map 0:1 -map 0:3 ' + destination)
         bash_command('udtacopy ' + source + ' ' + destination)
       else:
         print("More, than 2 streams, but no bin_data")
         exit(1)
     else:
-      bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + bitrate + ' -preset slower -look_ahead 1 -map 0:0 -map 0:1 ' + destination)
+      bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + str(bitrate) + ' -maxrate ' + str(bitrate*1.5) + ' -bitrate_limit 0 -bufsize ' + str(bitrate*4) +' -fps_mode passthrough -g 120 -preset slower -look_ahead 1 -map 0:0 -map 0:1 ' + destination)
     shutil.copystat(source, destination)
 
 def getOptions(codec, accelerator):
 
   if accelerator == "qsv":
     if codec == "h265":
-      options = "-init_hw_device qsv=hw -c copy -c:v hevc_qsv"
+      options = "-init_hw_device qsv=hw -c copy -c:v hevc_qsv -extbrc 1 -refs 20 -bf 7"
     elif codec == "h264":
       options = "-init_hw_device qsv=hw -c copy -c:v h264_qsv"
   elif accelerator == "cpu":

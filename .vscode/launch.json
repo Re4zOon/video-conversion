@@ -11,7 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-v", "/Plex/asd/Gopi/randomstuff"]
+            "args": ["-v", "/Plex/asd/Gopi/randomstuff", "-a", "cpu"]
         }
     ]
 }
