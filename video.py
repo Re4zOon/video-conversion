@@ -32,24 +32,23 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max):
 
   match file.streams[0].coded_height:
     case "1080":
-      mbits = 15
+      bitrate = 14
     case "1520":
-      mbits = 20
+      bitrate = 18
     case "2160":
-      mbits = 25
+      bitrate = 22
     case _:
-      bitrate = int(file.streams[0].coded_height) * int(file.streams[0].coded_width) * int(file.streams[0].framerate)
-      mbits = int(round(bitrate /1024/1024 * bitratemodifier))
+      bitrate = int(round(int(file.streams[0].coded_height) * int(file.streams[0].coded_width) * int(file.streams[0].framerate * bitratemodifier)))
 
-  mbits_limit = int(round(int(file.streams[0].bit_rate)/1024/1024*ratio_max))
+  bitrate_limit = int(round(int(file.streams[0].bit_rate)*ratio_max))
 
-  if mbits > mbits_limit:
-    mbits = mbits_limit
+  if bitrate > bitrate_limit:
+    bitrate = bitrate_limit
 
-  if mbits > mbits_max:
-    mbits = mbits_max
+  if bitrate > mbits_max*1024*1024:
+    bitrate = mbits_max*1024*1024
 
-  result = mbits*1024*1024
+  result = bitrate
   return result
 
 def videostofolders(contents, path):
