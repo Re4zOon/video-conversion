@@ -32,11 +32,11 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max):
 
   match file.streams[0].coded_height:
     case "1080":
-      bitrate = 14
+      bitrate = 14680064
     case "1520":
-      bitrate = 18
+      bitrate = 18874368
     case "2160":
-      bitrate = 22
+      bitrate = 23068672
     case _:
       bitrate = int(round(int(file.streams[0].coded_height) * int(file.streams[0].coded_width) * int(file.streams[0].framerate * bitratemodifier)))
 
