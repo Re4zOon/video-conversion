@@ -102,15 +102,26 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max):
     print()
     print("Sequence: " + sequence)
     file = FFProbe(source)
-    if len(file.streams) > 2:
-      if file.streams[3].codec_name == 'bin_data':
-        bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + str(bitrate) + ' -maxrate ' + str(bitrate*1.5) + ' -bitrate_limit 0 -bufsize ' + str(bitrate*4) +' -fps_mode passthrough -g 120 -preset slower -look_ahead 1 -map 0:0 -map 0:1 -map 0:3 ' + destination)
-        bash_command('udtacopy ' + source + ' ' + destination)
+    if args["convert"]:
+      if len(file.streams) > 2:
+        if file.streams[3].codec_name == 'bin_data':
+          bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + str(bitrate) + ' -maxrate ' + str(bitrate*1.5) + ' -bitrate_limit 0 -bufsize ' + str(bitrate*4) +' -fps_mode passthrough -g 120 -preset slower -look_ahead 1 -map 0:0 -map 0:1 -map 0:3 ' + destination)
+          bash_command('udtacopy ' + source + ' ' + destination)
+        else:
+          print("More, than 2 streams, but no bin_data")
+          exit(1)
       else:
-        print("More, than 2 streams, but no bin_data")
-        exit(1)
+        bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + str(bitrate) + ' -maxrate ' + str(bitrate*1.5) + ' -bitrate_limit 0 -bufsize ' + str(bitrate*4) +' -fps_mode passthrough -g 120 -preset slower -look_ahead 1 -map 0:0 -map 0:1 ' + destination)
     else:
-      bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + str(bitrate) + ' -maxrate ' + str(bitrate*1.5) + ' -bitrate_limit 0 -bufsize ' + str(bitrate*4) +' -fps_mode passthrough -g 120 -preset slower -look_ahead 1 -map 0:0 -map 0:1 ' + destination)
+      if len(file.streams) > 2:
+        if file.streams[3].codec_name == 'bin_data':
+          bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) -c copy -map 0:0 -map 0:1 -map 0:3 ' + destination)
+          bash_command('udtacopy ' + source + ' ' + destination)
+        else:
+          print("More, than 2 streams, but no bin_data")
+          exit(1)
+      else:
+        bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) -c copy -map 0:0 -map 0:1 ' + destination)
     shutil.copystat(source, destination)
 
 def getOptions(codec, accelerator):
@@ -139,5 +150,4 @@ if __name__ == '__main__':
 
   options = getOptions(args["codec"], args["accelerator"])
 
-  if args["convert"]:
-    convertVideos(args["videos"], options, args["bitratemodifier"], args["mbits_max"], args["ratio_max"])
+  convertVideos(args["videos"], options, args["bitratemodifier"], args["mbits_max"], args["ratio_max"])
