@@ -1,12 +1,11 @@
 #!/usr/bin/python3
 
 import os
+import sys
 import argparse
 import subprocess
 from ffprobe import FFProbe
 import shutil
-
-listOfSequences = []
 
 def arguments():
 
@@ -57,7 +56,7 @@ def videostofolders(contents, path):
     print("There is something to sort")
   else:
     print("There is nothing to sort")
-    return
+    return []
 
   files = []
   # Selecting only files to be moved
@@ -66,6 +65,7 @@ def videostofolders(contents, path):
       files.append(content)
 
   # Getting all unique sequences
+  listOfSequences = []
   for file in files:
     if "GH" in file or "GX" in file:
       if file[4:][:-4] not in listOfSequences:
@@ -83,10 +83,16 @@ def videostofolders(contents, path):
       if sequence in file:
         os.rename(path + "/" + file, path + "/" + sequence + '/' + file)
 
-def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert):
+  return listOfSequences
 
-  _listOfSequences = os.listdir(path)
-  _listOfSequences.sort()
+def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert, sequences=None):
+
+  # Use provided sequences list or fall back to directory listing
+  if sequences is not None:
+    _listOfSequences = sequences
+  else:
+    _listOfSequences = os.listdir(path)
+    _listOfSequences.sort()
 
   print("List: ")
   print(*_listOfSequences, sep = ", ")
@@ -146,11 +152,26 @@ if __name__ == '__main__':
 
   args = arguments()
 
+  # Validate that the videos path exists and is a directory
+  videos_path = args["videos"]
+  if not os.path.exists(videos_path):
+    print(f"Error: The specified path does not exist: {videos_path}", file=sys.stderr)
+    sys.exit(1)
+  if not os.path.isdir(videos_path):
+    print(f"Error: The specified path is not a directory: {videos_path}", file=sys.stderr)
+    sys.exit(1)
+
   contents = os.listdir(args["videos"])
   contents.sort()
 
-  videostofolders(contents, args["videos"])
+  # videostofolders now returns the list of sequences
+  sequences = videostofolders(contents, args["videos"])
+
+  # Skip conversion if there are no sequences to process
+  if not sequences:
+    print("No video sequences to convert. Exiting.")
+    sys.exit(0)
 
   options = getOptions(args["codec"], args["accelerator"])
 
-  convertVideos(args["videos"], options, args["bitratemodifier"], args["mbits_max"], args["ratio_max"], args["convert"])
+  convertVideos(args["videos"], options, args["bitratemodifier"], args["mbits_max"], args["ratio_max"], args["convert"], sequences)
