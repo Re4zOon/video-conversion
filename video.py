@@ -85,10 +85,14 @@ def videostofolders(contents, path):
 
   return listOfSequences
 
-def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert):
+def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert, sequences=None):
 
-  _listOfSequences = os.listdir(path)
-  _listOfSequences.sort()
+  # Use provided sequences list or fall back to directory listing
+  if sequences is not None:
+    _listOfSequences = sequences
+  else:
+    _listOfSequences = os.listdir(path)
+    _listOfSequences.sort()
 
   print("List: ")
   print(*_listOfSequences, sep = ", ")
@@ -163,6 +167,11 @@ if __name__ == '__main__':
   # videostofolders now returns the list of sequences
   sequences = videostofolders(contents, args["videos"])
 
+  # Skip conversion if there are no sequences to process
+  if not sequences:
+    print("No video sequences to convert. Exiting.")
+    sys.exit(0)
+
   options = getOptions(args["codec"], args["accelerator"])
 
-  convertVideos(args["videos"], options, args["bitratemodifier"], args["mbits_max"], args["ratio_max"], args["convert"])
+  convertVideos(args["videos"], options, args["bitratemodifier"], args["mbits_max"], args["ratio_max"], args["convert"], sequences)
