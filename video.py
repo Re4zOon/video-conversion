@@ -1,12 +1,11 @@
 #!/usr/bin/python3
 
 import os
+import sys
 import argparse
 import subprocess
 from ffprobe import FFProbe
 import shutil
-
-listOfSequences = []
 
 def arguments():
 
@@ -57,7 +56,7 @@ def videostofolders(contents, path):
     print("There is something to sort")
   else:
     print("There is nothing to sort")
-    return
+    return []
 
   files = []
   # Selecting only files to be moved
@@ -65,7 +64,8 @@ def videostofolders(contents, path):
     if "MP4" in content or "mp4" in content:
       files.append(content)
 
-  # Getting all unique sequences
+  # Getting all unique sequences (local list, not global)
+  listOfSequences = []
   for file in files:
     if "GH" in file or "GX" in file:
       if file[4:][:-4] not in listOfSequences:
@@ -82,6 +82,8 @@ def videostofolders(contents, path):
     for file in files:
       if sequence in file:
         os.rename(path + "/" + file, path + "/" + sequence + '/' + file)
+
+  return listOfSequences
 
 def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert):
 
@@ -146,10 +148,20 @@ if __name__ == '__main__':
 
   args = arguments()
 
+  # Validate that the videos path exists and is a directory
+  videos_path = args["videos"]
+  if not os.path.exists(videos_path):
+    print(f"Error: The specified path does not exist: {videos_path}", file=sys.stderr)
+    sys.exit(1)
+  if not os.path.isdir(videos_path):
+    print(f"Error: The specified path is not a directory: {videos_path}", file=sys.stderr)
+    sys.exit(1)
+
   contents = os.listdir(args["videos"])
   contents.sort()
 
-  videostofolders(contents, args["videos"])
+  # videostofolders now returns the list of sequences
+  sequences = videostofolders(contents, args["videos"])
 
   options = getOptions(args["codec"], args["accelerator"])
 
