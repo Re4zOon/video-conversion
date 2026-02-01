@@ -41,7 +41,7 @@ pip install ffprobe-python
 
 2. Install Python dependencies:
    ```bash
-   pip install ffprobe-python
+   pip install -r requirements.txt
    ```
 
 3. Ensure FFmpeg and exiftool are installed:
