@@ -64,7 +64,7 @@ def videostofolders(contents, path):
     if "MP4" in content or "mp4" in content:
       files.append(content)
 
-  # Getting all unique sequences (local list, not global)
+  # Getting all unique sequences
   listOfSequences = []
   for file in files:
     if "GH" in file or "GX" in file:
