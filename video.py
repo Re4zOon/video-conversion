@@ -242,7 +242,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
             )
         elif len(file.streams) == 3:
           raise VideoConversionError(
-            f"Cannot access stream index 3 in '{source}'; file has only {len(file.streams)} stream(s) (indices 0-{len(file.streams) - 1})"
+            f"Unexpected stream count in '{source}': expected 2 streams (video+audio) or at least 4 streams (video+audio+extra+telemetry), but found {len(file.streams)} stream(s)"
           )
         else:
           ffmpeg_cmd = f"{ffmpeg_cmd} {quoted_destination}"
