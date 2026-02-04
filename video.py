@@ -101,15 +101,14 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=None):
     except (TypeError, ValueError) as exc:
       raise VideoConversionError(f"Invalid bit_rate in '{source}': {stream.bit_rate}") from exc
 
-    match coded_height:
-      case _ if coded_height == HEIGHT_1080P:
-        bitrate = BITRATE_1080P
-      case _ if coded_height == HEIGHT_1520P:
-        bitrate = BITRATE_1520P
-      case _ if coded_height == HEIGHT_2160P:
-        bitrate = BITRATE_2160P
-      case _:
-        bitrate = int(round(coded_height * coded_width * framerate * bitratemodifier))
+    if coded_height == HEIGHT_1080P:
+      bitrate = BITRATE_1080P
+    elif coded_height == HEIGHT_1520P:
+      bitrate = BITRATE_1520P
+    elif coded_height == HEIGHT_2160P:
+      bitrate = BITRATE_2160P
+    else:
+      bitrate = int(round(coded_height * coded_width * framerate * bitratemodifier))
 
     bitrate_limit = int(round(bit_rate * ratio_max))
 
@@ -210,13 +209,11 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as concat_file:
           concat_path = concat_file.name
           for filename in files:
-            concat_file.write(f"file '{os.path.join(path, sequence, filename)}'\n")
+            file_path = os.path.abspath(os.path.join(path, sequence, filename))
+            concat_file.write(f"file {shlex.quote(file_path)}\n")
 
         quoted_concat = shlex.quote(concat_path)
-        concat_cmd = (
-          f"cd {quoted_path}/{quoted_sequence};"
-          f"ffmpeg -y -f concat -safe 0 -i {quoted_concat} "
-        )
+        concat_cmd = f"ffmpeg -y -f concat -safe 0 -i {quoted_concat} "
 
         if convert:
           maxrate = int(bitrate * MAXRATE_MULTIPLIER)
@@ -257,7 +254,10 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
         shutil.copystat(source, destination)
       finally:
         if concat_path:
-          os.unlink(concat_path)
+          try:
+            os.unlink(concat_path)
+          except OSError:
+            logger.warning("Failed to remove concat file: %s", concat_path)
     except VideoConversionError:
       raise
     except (OSError, IndexError, AttributeError, subprocess.SubprocessError) as exc:
