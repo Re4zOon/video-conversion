@@ -5,6 +5,27 @@ import pytest
 import video
 
 
+class DummyStream:
+    def __init__(
+        self,
+        coded_height=1080,
+        coded_width=1920,
+        framerate=30.0,
+        bit_rate=1000,
+        codec_name="h264",
+    ):
+        self.coded_height = coded_height
+        self.coded_width = coded_width
+        self.framerate = framerate
+        self.bit_rate = bit_rate
+        self.codec_name = codec_name
+
+
+class DummyProbe:
+    def __init__(self, streams):
+        self.streams = streams
+
+
 def test_bash_command_handles_missing_shell(monkeypatch):
     def raise_missing(*_args, **_kwargs):
         raise FileNotFoundError("missing")
@@ -28,3 +49,52 @@ def test_bash_command_handles_command_failure(monkeypatch):
 def test_get_options_rejects_invalid_combo():
     with pytest.raises(video.VideoConversionError, match="Unsupported codec/accelerator"):
         video.getOptions("bad", "cpu")
+
+
+def test_probe_video_handles_missing_file(monkeypatch):
+    def raise_missing(_source):
+        raise FileNotFoundError("missing")
+
+    monkeypatch.setattr(video, "FFProbe", raise_missing)
+
+    with pytest.raises(video.VideoConversionError, match="Source file not found"):
+        video.probeVideo("/tmp/missing.mp4")
+
+
+def test_calculate_bitrate_invalid_metadata():
+    probe = DummyProbe([DummyStream(coded_height=None)])
+
+    with pytest.raises(video.VideoConversionError, match="Missing stream metadata"):
+        video.calculateBitrate("/tmp/source.mp4", 0.12, 25, 0.7, probe=probe)
+
+
+def test_videos_to_folders_permission_error(monkeypatch, tmp_path):
+    def raise_permission(_path, exist_ok=True):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(video.os, "makedirs", raise_permission)
+    contents = ["GH010001.MP4"]
+
+    with pytest.raises(video.VideoConversionError, match="Failed to organize videos"):
+        video.videostofolders(contents, str(tmp_path))
+
+
+def test_convert_videos_rejects_single_stream(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0001"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010001.MP4"
+    source_path.write_text("video")
+
+    def fake_listdir(path):
+        if path == str(tmp_path):
+            return ["0001"]
+        if path == str(sequence_path):
+            return ["GH010001.MP4"]
+        return []
+
+    monkeypatch.setattr(video.os, "listdir", fake_listdir)
+    monkeypatch.setattr(video, "probeVideo", lambda _source: DummyProbe([DummyStream()]))
+    monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
+
+    with pytest.raises(video.VideoConversionError, match="Expected at least 2 streams"):
+        video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0001"])
