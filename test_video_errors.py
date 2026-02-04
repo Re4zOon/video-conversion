@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 
 import video
@@ -10,6 +12,16 @@ def test_bash_command_handles_missing_shell(monkeypatch):
     monkeypatch.setattr(video.subprocess, "run", raise_missing)
 
     with pytest.raises(video.VideoConversionError, match="Bash not available"):
+        video.bash_command("echo test", context="test")
+
+
+def test_bash_command_handles_command_failure(monkeypatch):
+    def raise_failure(*_args, **_kwargs):
+        raise subprocess.CalledProcessError(1, "echo test")
+
+    monkeypatch.setattr(video.subprocess, "run", raise_failure)
+
+    with pytest.raises(video.VideoConversionError, match="Command failed"):
         video.bash_command("echo test", context="test")
 
 
