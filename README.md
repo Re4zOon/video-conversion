@@ -25,6 +25,12 @@ A Python tool for organizing and compressing GoPro videos using FFmpeg. It autom
 pip install ffprobe-python
 ```
 
+### Development Dependencies
+
+```bash
+pip install -r requirements-dev.txt
+```
+
 ### External Tools
 
 - **ffmpeg**: Video processing
