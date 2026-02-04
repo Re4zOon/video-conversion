@@ -11,13 +11,13 @@ class DummyStream:
         self,
         coded_height=1080,
         coded_width=1920,
-        frame_rate=30.0,
+        framerate=30.0,
         bit_rate=1000,
         codec_name="h264",
     ):
         self.coded_height = coded_height
         self.coded_width = coded_width
-        self.framerate = frame_rate
+        self.framerate = framerate
         self.bit_rate = bit_rate
         self.codec_name = codec_name
 
