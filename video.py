@@ -14,6 +14,11 @@ log_level = getattr(logging, log_level_name, logging.INFO)
 logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+BITRATE_1080P = 14680064  # Optimized bitrate for 1080p video
+BITRATE_1520P = 18874368  # Optimized bitrate for 1520p video
+BITRATE_2160P = 23068672  # Optimized bitrate for 2160p (4K) video
+MAXRATE_MULTIPLIER = 1.5
+BUFSIZE_MULTIPLIER = 4
 
 class VideoConversionError(Exception):
   """Raised when video processing operations fail (probe, organize, convert), chaining errors."""
@@ -72,11 +77,11 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=None):
 
     match coded_height:
       case 1080:
-        bitrate = 14680064
+        bitrate = BITRATE_1080P
       case 1520:
-        bitrate = 18874368
+        bitrate = BITRATE_1520P
       case 2160:
-        bitrate = 23068672
+        bitrate = BITRATE_2160P
       case _:
         bitrate = int(round(coded_height * coded_width * framerate * bitratemodifier))
 
@@ -182,8 +187,8 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
 
       if convert:
         ffmpeg_cmd = (
-          f"{concat_cmd}{options} -b:v {bitrate} -maxrate {bitrate * 1.5} "
-          f"-bitrate_limit 0 -bufsize {bitrate * 4} -fps_mode passthrough -g 120 "
+          f"{concat_cmd}{options} -b:v {bitrate} -maxrate {bitrate * MAXRATE_MULTIPLIER} "
+          f"-bitrate_limit 0 -bufsize {bitrate * BUFSIZE_MULTIPLIER} -fps_mode passthrough -g 120 "
           f"-preset slower -look_ahead 1 -map 0:0 -map 0:1"
         )
       else:
