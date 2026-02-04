@@ -11,6 +11,9 @@ import shutil
 import tempfile
 
 log_level_name = os.getenv("GOPRO_LOG_LEVEL", "INFO").upper()
+allowed_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+if log_level_name not in allowed_levels:
+  log_level_name = "INFO"
 log_level = getattr(logging, log_level_name, logging.INFO)
 logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -210,7 +213,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           concat_path = concat_file.name
           for filename in files:
             file_path = os.path.abspath(os.path.join(path, sequence, filename))
-            concat_file.write(f"file {shlex.quote(file_path)}\n")
+            concat_file.write(f"file {file_path}\n")
 
         quoted_concat = shlex.quote(concat_path)
         concat_cmd = f"ffmpeg -y -f concat -safe 0 -i {quoted_concat} "
@@ -257,7 +260,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           try:
             os.unlink(concat_path)
           except OSError:
-            logger.warning("Failed to remove concat file: %s", concat_path)
+            logger.warning("Failed to remove concat file: %s", concat_path, exc_info=True)
     except VideoConversionError:
       raise
     except (OSError, IndexError, AttributeError, subprocess.SubprocessError) as exc:
