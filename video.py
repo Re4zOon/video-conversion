@@ -211,7 +211,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
       try:
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as concat_file:
           concat_path = concat_file.name
-          # Follow ffmpeg concat demuxer file list format.
+          # Follow ffmpeg concat demuxer file list format (file /absolute/path).
           for filename in files:
             file_path = os.path.abspath(os.path.join(path, sequence, filename))
             concat_file.write(f"file {shlex.quote(file_path)}\n")
@@ -261,7 +261,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           try:
             os.unlink(concat_path)
           except OSError:
-            logger.warning("Failed to remove concat file: %s", concat_path, exc_info=True)
+            logger.warning("Failed to clean up temporary concat file: %s", concat_path, exc_info=True)
     except VideoConversionError:
       raise
     except (OSError, IndexError, AttributeError, subprocess.SubprocessError) as exc:
