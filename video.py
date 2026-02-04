@@ -200,8 +200,6 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
       print()
       print("Sequence: " + sequence)
 
-      quoted_path = shlex.quote(path)
-      quoted_sequence = shlex.quote(sequence)
       quoted_source = shlex.quote(source)
       quoted_destination = shlex.quote(destination)
 
