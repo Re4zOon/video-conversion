@@ -11,13 +11,13 @@ class DummyStream:
         self,
         coded_height=1080,
         coded_width=1920,
-        framerate=30.0,
+        frame_rate=30.0,
         bit_rate=1000,
         codec_name="h264",
     ):
         self.coded_height = coded_height
         self.coded_width = coded_width
-        self.framerate = framerate
+        self.framerate = frame_rate
         self.bit_rate = bit_rate
         self.codec_name = codec_name
 
@@ -64,10 +64,10 @@ def test_probe_video_handles_missing_file(monkeypatch):
 
 
 def test_calculate_bitrate_invalid_metadata():
-    probe_with_invalid_metadata = DummyProbe([DummyStream(coded_height=None)])
+    invalid_probe = DummyProbe([DummyStream(coded_height=None)])
 
     with pytest.raises(video.VideoConversionError, match="Missing stream metadata"):
-        video.calculateBitrate("/tmp/source.mp4", 0.12, 25, 0.7, probe=probe_with_invalid_metadata)
+        video.calculateBitrate("/tmp/source.mp4", 0.12, 25, 0.7, probe=invalid_probe)
 
 
 def test_videos_to_folders_permission_error(monkeypatch, tmp_path):
