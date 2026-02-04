@@ -6,6 +6,7 @@ import video
 
 
 class DummyStream:
+    """Lightweight stream mock with configurable metadata for tests."""
     def __init__(
         self,
         coded_height=1080,
@@ -22,6 +23,7 @@ class DummyStream:
 
 
 class DummyProbe:
+    """Simple probe mock that exposes a streams list for tests."""
     def __init__(self, streams):
         self.streams = streams
 
@@ -62,10 +64,10 @@ def test_probe_video_handles_missing_file(monkeypatch):
 
 
 def test_calculate_bitrate_invalid_metadata():
-    probe = DummyProbe([DummyStream(coded_height=None)])
+    probe_with_invalid_metadata = DummyProbe([DummyStream(coded_height=None)])
 
     with pytest.raises(video.VideoConversionError, match="Missing stream metadata"):
-        video.calculateBitrate("/tmp/source.mp4", 0.12, 25, 0.7, probe=probe)
+        video.calculateBitrate("/tmp/source.mp4", 0.12, 25, 0.7, probe=probe_with_invalid_metadata)
 
 
 def test_videos_to_folders_permission_error(monkeypatch, tmp_path):
