@@ -140,29 +140,27 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
       print("Sequence: " + sequence)
       file = FFProbe(source)
       if convert:
-        if len(file.streams) > 2:
-          if len(file.streams) > 3:
-            if file.streams[3].codec_name == 'bin_data':
-              bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + str(bitrate) + ' -maxrate ' + str(bitrate * 1.5) + ' -bitrate_limit 0 -bufsize ' + str(bitrate * 4) + ' -fps_mode passthrough -g 120 -preset slower -look_ahead 1 -map 0:0 -map 0:1 -map 0:3 ' + destination, f"converting sequence '{sequence}'")
-              bash_command('udtacopy ' + source + ' ' + destination, f"copying telemetry for '{sequence}'")
-              bash_command('exiftool -TagsFromFile ' + source + ' -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate ' + destination, f"copying metadata for '{sequence}'")
-            else:
-              raise VideoConversionError(f"Expected bin_data stream at index 3 in '{source}' but found '{file.streams[3].codec_name}'")
+        if len(file.streams) > 3:
+          if file.streams[3].codec_name == 'bin_data':
+            bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + str(bitrate) + ' -maxrate ' + str(bitrate * 1.5) + ' -bitrate_limit 0 -bufsize ' + str(bitrate * 4) + ' -fps_mode passthrough -g 120 -preset slower -look_ahead 1 -map 0:0 -map 0:1 -map 0:3 ' + destination, f"converting sequence '{sequence}'")
+            bash_command('udtacopy ' + source + ' ' + destination, f"copying telemetry for '{sequence}'")
+            bash_command('exiftool -TagsFromFile ' + source + ' -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate ' + destination, f"copying metadata for '{sequence}'")
           else:
-            raise VideoConversionError(f"Expected bin_data stream at index 3 in '{source}' but found only {len(file.streams)} stream(s)")
+            raise VideoConversionError(f"Expected bin_data stream at index 3 in '{source}' but found '{file.streams[3].codec_name}'")
+        elif len(file.streams) > 2:
+          raise VideoConversionError(f"Expected bin_data stream at index 3 in '{source}' but found only {len(file.streams)} stream(s)")
         else:
           bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + str(bitrate) + ' -maxrate ' + str(bitrate * 1.5) + ' -bitrate_limit 0 -bufsize ' + str(bitrate * 4) + ' -fps_mode passthrough -g 120 -preset slower -look_ahead 1 -map 0:0 -map 0:1 ' + destination, f"converting sequence '{sequence}'")
       else:
-        if len(file.streams) > 2:
-          if len(file.streams) > 3:
-            if file.streams[3].codec_name == 'bin_data':
-              bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) -c copy -map 0:0 -map 0:1 -map 0:3 ' + destination, f"concatenating sequence '{sequence}'")
-              bash_command('udtacopy ' + source + ' ' + destination, f"copying telemetry for '{sequence}'")
-              bash_command('exiftool -TagsFromFile ' + source + ' -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate ' + destination, f"copying metadata for '{sequence}'")
-            else:
-              raise VideoConversionError(f"Expected bin_data stream at index 3 in '{source}' but found '{file.streams[3].codec_name}'")
+        if len(file.streams) > 3:
+          if file.streams[3].codec_name == 'bin_data':
+            bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) -c copy -map 0:0 -map 0:1 -map 0:3 ' + destination, f"concatenating sequence '{sequence}'")
+            bash_command('udtacopy ' + source + ' ' + destination, f"copying telemetry for '{sequence}'")
+            bash_command('exiftool -TagsFromFile ' + source + ' -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate ' + destination, f"copying metadata for '{sequence}'")
           else:
-            raise VideoConversionError(f"Expected bin_data stream at index 3 in '{source}' but found only {len(file.streams)} stream(s)")
+            raise VideoConversionError(f"Expected bin_data stream at index 3 in '{source}' but found '{file.streams[3].codec_name}'")
+        elif len(file.streams) > 2:
+          raise VideoConversionError(f"Expected bin_data stream at index 3 in '{source}' but found only {len(file.streams)} stream(s)")
         else:
           bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) -c copy -map 0:0 -map 0:1 ' + destination, f"concatenating sequence '{sequence}'")
           bash_command('exiftool -TagsFromFile ' + source + ' -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate ' + destination, f"copying metadata for '{sequence}'")
@@ -174,7 +172,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
 
 def getOptions(codec, accelerator):
 
-  options = ""
+  options = None
   if accelerator == "qsv":
     if codec == "h265":
       options = "-init_hw_device qsv=hw -c copy -c:v hevc_qsv -extbrc 1 -refs 20 -bf 7"
