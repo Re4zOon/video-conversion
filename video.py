@@ -213,7 +213,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           concat_path = concat_file.name
           for filename in files:
             file_path = os.path.abspath(os.path.join(path, sequence, filename))
-            concat_file.write(f"file {file_path}\n")
+            concat_file.write(f"file {shlex.quote(file_path)}\n")
 
         quoted_concat = shlex.quote(concat_path)
         concat_cmd = f"ffmpeg -y -f concat -safe 0 -i {quoted_concat} "
@@ -259,8 +259,8 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
         if concat_path:
           try:
             os.unlink(concat_path)
-          except OSError:
-            logger.warning("Failed to remove concat file: %s", concat_path, exc_info=True)
+          except OSError as exc:
+            logger.warning("Failed to remove concat file %s: %s", concat_path, exc, exc_info=True)
     except VideoConversionError:
       raise
     except (OSError, IndexError, AttributeError, subprocess.SubprocessError) as exc:
