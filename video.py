@@ -183,12 +183,12 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
   print(*_listOfSequences, sep = ", ")
   for sequence in _listOfSequences:
     try:
-      files = os.listdir(path + "/" + sequence)
+      files = os.listdir(os.path.join(path, sequence))
       files.sort()
       if not files:
         raise VideoConversionError(f"No video files found in sequence '{sequence}'")
-      source = str(path + "/" + sequence + '/' + files[0])
-      destination = str(path + '/' + files[0])
+      source = os.path.join(path, sequence, files[0])
+      destination = os.path.join(path, files[0])
       file = probeVideo(source)
       if len(file.streams) < 2:
         raise VideoConversionError(
