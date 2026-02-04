@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class VideoConversionError(Exception):
-  """Raised when video conversion processing fails, chaining underlying errors."""
+  """Raised when video conversion fails, chaining underlying errors."""
 
 def arguments():
 
@@ -147,9 +147,9 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
             bash_command('exiftool -TagsFromFile ' + source + ' -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate ' + destination, f"copying metadata for '{sequence}'")
           else:
             raise VideoConversionError(f"Expected bin_data stream at index 3 in '{source}' but found '{file.streams[3].codec_name}'")
-        elif len(file.streams) > 2:
+        elif len(file.streams) == 3:
           raise VideoConversionError(
-            f"Expected bin_data stream at index 3 in '{source}' but found only {len(file.streams)} stream(s); at least 4 streams required"
+            f"Stream index 3 not found in '{source}' (only {len(file.streams)} stream(s) available); bin_data stream requires at least 4 streams"
           )
         else:
           bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + str(bitrate) + ' -maxrate ' + str(bitrate * 1.5) + ' -bitrate_limit 0 -bufsize ' + str(bitrate * 4) + ' -fps_mode passthrough -g 120 -preset slower -look_ahead 1 -map 0:0 -map 0:1 ' + destination, f"converting sequence '{sequence}'")
@@ -161,9 +161,9 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
             bash_command('exiftool -TagsFromFile ' + source + ' -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate ' + destination, f"copying metadata for '{sequence}'")
           else:
             raise VideoConversionError(f"Expected bin_data stream at index 3 in '{source}' but found '{file.streams[3].codec_name}'")
-        elif len(file.streams) > 2:
+        elif len(file.streams) == 3:
           raise VideoConversionError(
-            f"Expected bin_data stream at index 3 in '{source}' but found only {len(file.streams)} stream(s); at least 4 streams required"
+            f"Stream index 3 not found in '{source}' (only {len(file.streams)} stream(s) available); bin_data stream requires at least 4 streams"
           )
         else:
           bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) -c copy -map 0:0 -map 0:1 ' + destination, f"concatenating sequence '{sequence}'")
