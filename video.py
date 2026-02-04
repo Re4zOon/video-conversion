@@ -125,8 +125,6 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=None):
     return result
   except VideoConversionError:
     raise
-  except FileNotFoundError as exc:
-    raise VideoConversionError(f"Source file not found while probing '{source}': {exc}") from exc
   except (OSError, ValueError, TypeError, IndexError, AttributeError, subprocess.SubprocessError) as exc:
     raise VideoConversionError(f"Failed to calculate bitrate for '{source}': {exc}") from exc
 
