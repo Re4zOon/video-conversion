@@ -8,6 +8,7 @@ import logging
 import shlex
 from ffprobe import FFProbe
 import shutil
+import tempfile
 
 log_level_name = os.getenv("GOPRO_LOG_LEVEL", "INFO").upper()
 log_level = getattr(logging, log_level_name, logging.INFO)
@@ -17,6 +18,9 @@ logger = logging.getLogger(__name__)
 BITRATE_1080P = 14680064  # Optimized bitrate for 1080p video
 BITRATE_1520P = 18874368  # Optimized bitrate for 1520p video
 BITRATE_2160P = 23068672  # Optimized bitrate for 2160p (4K) video
+HEIGHT_1080P = 1080
+HEIGHT_1520P = 1520
+HEIGHT_2160P = 2160
 MAXRATE_MULTIPLIER = 1.5
 BUFSIZE_MULTIPLIER = 4
 
@@ -67,8 +71,15 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=None):
     file = probe or probeVideo(source)
     stream = file.streams[0]
 
-    if stream.coded_height is None or stream.coded_width is None or stream.framerate is None or stream.bit_rate is None:
-      raise VideoConversionError(f"Missing stream metadata in '{source}'")
+    required_fields = {
+      "coded_height": stream.coded_height,
+      "coded_width": stream.coded_width,
+      "framerate": stream.framerate,
+      "bit_rate": stream.bit_rate,
+    }
+    missing_fields = [name for name, value in required_fields.items() if value is None]
+    if missing_fields:
+      raise VideoConversionError(f"Missing stream metadata in '{source}': {', '.join(missing_fields)}")
 
     try:
       coded_height = int(stream.coded_height)
@@ -91,11 +102,11 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=None):
       raise VideoConversionError(f"Invalid bit_rate in '{source}': {stream.bit_rate}") from exc
 
     match coded_height:
-      case 1080:
+      case _ if coded_height == HEIGHT_1080P:
         bitrate = BITRATE_1080P
-      case 1520:
+      case _ if coded_height == HEIGHT_1520P:
         bitrate = BITRATE_1520P
-      case 2160:
+      case _ if coded_height == HEIGHT_2160P:
         bitrate = BITRATE_2160P
       case _:
         bitrate = int(round(coded_height * coded_width * framerate * bitratemodifier))
@@ -194,48 +205,59 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
       quoted_source = shlex.quote(source)
       quoted_destination = shlex.quote(destination)
 
-      concat_cmd = (
-        f"cd {quoted_path}/{quoted_sequence};"
-        "ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file '$PWD/$f'\"; done) "
-      )
+      concat_path = None
+      try:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as concat_file:
+          concat_path = concat_file.name
+          for filename in files:
+            concat_file.write(f"file '{os.path.join(path, sequence, filename)}'\n")
 
-      if convert:
-        maxrate = int(bitrate * MAXRATE_MULTIPLIER)
-        bufsize = int(bitrate * BUFSIZE_MULTIPLIER)
-        ffmpeg_cmd = (
-          f"{concat_cmd}{options} -b:v {bitrate} -maxrate {maxrate} "
-          f"-bitrate_limit 0 -bufsize {bufsize} -fps_mode passthrough -g 120 "
-          f"-preset slower -look_ahead 1 -map 0:0 -map 0:1"
+        quoted_concat = shlex.quote(concat_path)
+        concat_cmd = (
+          f"cd {quoted_path}/{quoted_sequence};"
+          f"ffmpeg -y -f concat -safe 0 -i {quoted_concat} "
         )
-      else:
-        ffmpeg_cmd = f"{concat_cmd}-c copy -map 0:0 -map 0:1"
 
-      if len(file.streams) >= 4:
-        if file.streams[3].codec_name == 'bin_data':
-          ffmpeg_cmd = f"{ffmpeg_cmd} -map 0:3 {quoted_destination}"
+        if convert:
+          maxrate = int(bitrate * MAXRATE_MULTIPLIER)
+          bufsize = int(bitrate * BUFSIZE_MULTIPLIER)
+          ffmpeg_cmd = (
+            f"{concat_cmd}{options} -b:v {bitrate} -maxrate {maxrate} "
+            f"-bitrate_limit 0 -bufsize {bufsize} -fps_mode passthrough -g 120 "
+            f"-preset slower -look_ahead 1 -map 0:0 -map 0:1"
+          )
+        else:
+          ffmpeg_cmd = f"{concat_cmd}-c copy -map 0:0 -map 0:1"
+
+        if len(file.streams) >= 4:
+          if file.streams[3].codec_name == 'bin_data':
+            ffmpeg_cmd = f"{ffmpeg_cmd} -map 0:3 {quoted_destination}"
+            bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{sequence}'")
+            bash_command(f"udtacopy {quoted_source} {quoted_destination}", f"copying telemetry for '{sequence}'")
+            bash_command(
+              f"exiftool -TagsFromFile {quoted_source} -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate {quoted_destination}",
+              f"copying metadata for '{sequence}'"
+            )
+          else:
+            raise VideoConversionError(
+              f"Expected bin_data stream at index 3 in '{source}' but found '{file.streams[3].codec_name}'"
+            )
+        elif len(file.streams) == 3:
+          raise VideoConversionError(
+            f"Cannot access stream index 3 in '{source}'; file has only {len(file.streams)} stream(s) (indices 0-{len(file.streams) - 1})"
+          )
+        else:
+          ffmpeg_cmd = f"{ffmpeg_cmd} {quoted_destination}"
           bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{sequence}'")
-          bash_command(f"udtacopy {quoted_source} {quoted_destination}", f"copying telemetry for '{sequence}'")
           bash_command(
             f"exiftool -TagsFromFile {quoted_source} -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate {quoted_destination}",
             f"copying metadata for '{sequence}'"
           )
-        else:
-          raise VideoConversionError(
-            f"Expected bin_data stream at index 3 in '{source}' but found '{file.streams[3].codec_name}'"
-          )
-      elif len(file.streams) == 3:
-        raise VideoConversionError(
-          f"Cannot access stream index 3 in '{source}'; file has only {len(file.streams)} stream(s) (indices 0-{len(file.streams) - 1})"
-        )
-      else:
-        ffmpeg_cmd = f"{ffmpeg_cmd} {quoted_destination}"
-        bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{sequence}'")
-        bash_command(
-          f"exiftool -TagsFromFile {quoted_source} -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate {quoted_destination}",
-          f"copying metadata for '{sequence}'"
-        )
 
-      shutil.copystat(source, destination)
+        shutil.copystat(source, destination)
+      finally:
+        if concat_path:
+          os.unlink(concat_path)
     except VideoConversionError:
       raise
     except (OSError, IndexError, AttributeError, subprocess.SubprocessError) as exc:
