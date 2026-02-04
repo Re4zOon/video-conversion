@@ -70,10 +70,25 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=None):
     if stream.coded_height is None or stream.coded_width is None or stream.framerate is None or stream.bit_rate is None:
       raise VideoConversionError(f"Missing stream metadata in '{source}'")
 
-    coded_height = int(stream.coded_height)
-    coded_width = int(stream.coded_width)
-    framerate = float(stream.framerate)
-    bit_rate = int(stream.bit_rate)
+    try:
+      coded_height = int(stream.coded_height)
+    except (TypeError, ValueError) as exc:
+      raise VideoConversionError(f"Invalid coded_height in '{source}': {stream.coded_height}") from exc
+
+    try:
+      coded_width = int(stream.coded_width)
+    except (TypeError, ValueError) as exc:
+      raise VideoConversionError(f"Invalid coded_width in '{source}': {stream.coded_width}") from exc
+
+    try:
+      framerate = float(stream.framerate)
+    except (TypeError, ValueError) as exc:
+      raise VideoConversionError(f"Invalid framerate in '{source}': {stream.framerate}") from exc
+
+    try:
+      bit_rate = int(stream.bit_rate)
+    except (TypeError, ValueError) as exc:
+      raise VideoConversionError(f"Invalid bit_rate in '{source}': {stream.bit_rate}") from exc
 
     match coded_height:
       case 1080:
@@ -164,16 +179,15 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
       source = str(path + "/" + sequence + '/' + files[0])
       destination = str(path + '/' + files[0])
       file = probeVideo(source)
+      if len(file.streams) < 2:
+        raise VideoConversionError(
+          f"Expected at least 2 streams in '{source}' but found {len(file.streams)} stream(s)"
+        )
       bitrate = calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=file)
       print()
       print()
       print()
       print("Sequence: " + sequence)
-
-      if len(file.streams) < 2:
-        raise VideoConversionError(
-          f"Expected at least 2 streams in '{source}' but found {len(file.streams)} stream(s)"
-        )
 
       quoted_path = shlex.quote(path)
       quoted_sequence = shlex.quote(sequence)
@@ -186,9 +200,11 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
       )
 
       if convert:
+        maxrate = int(bitrate * MAXRATE_MULTIPLIER)
+        bufsize = int(bitrate * BUFSIZE_MULTIPLIER)
         ffmpeg_cmd = (
-          f"{concat_cmd}{options} -b:v {bitrate} -maxrate {bitrate * MAXRATE_MULTIPLIER} "
-          f"-bitrate_limit 0 -bufsize {bitrate * BUFSIZE_MULTIPLIER} -fps_mode passthrough -g 120 "
+          f"{concat_cmd}{options} -b:v {bitrate} -maxrate {maxrate} "
+          f"-bitrate_limit 0 -bufsize {bufsize} -fps_mode passthrough -g 120 "
           f"-preset slower -look_ahead 1 -map 0:0 -map 0:1"
         )
       else:
