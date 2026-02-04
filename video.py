@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 class VideoConversionError(Exception):
   """Raised when video conversion processing fails."""
-  pass
 
 def arguments():
 
