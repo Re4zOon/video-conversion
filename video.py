@@ -252,7 +252,12 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
             f"copying metadata for '{sequence}'"
           )
 
-        shutil.copystat(source, destination)
+        try:
+          shutil.copystat(source, destination)
+        except OSError as exc:
+          msg = f"Failed to copy file metadata from '{source}' to '{destination}': {exc}"
+          logger.warning(msg)
+          raise VideoConversionError(msg) from exc
       finally:
         if concat_path:
           try:
