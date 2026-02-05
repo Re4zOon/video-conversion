@@ -77,7 +77,7 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=None):
   try:
     file = probe or probeVideo(source)
     if not file.streams:
-      raise VideoConversionError(f"No streams in probe for '{source}'")
+      raise VideoConversionError(f"No streams found in probe for '{source}'")
     stream = file.streams[0]
 
     required_fields = {
@@ -242,7 +242,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
 
         if len(file.streams) >= 4:
           if file.streams[3].codec_name == 'bin_data':
-            # Extra streams beyond index 3 are ignored.
+            # Extra streams beyond index 3 are ignored by this tool.
             ffmpeg_cmd = f"{ffmpeg_cmd} -map 0:3 {quoted_destination}"
             bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{safe_sequence}'")
             bash_command(f"udtacopy {quoted_source} {quoted_destination}", f"copying telemetry for '{safe_sequence}'")
