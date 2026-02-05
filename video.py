@@ -22,8 +22,12 @@ def configure_logging():
   logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 
 def sanitize_for_log(value):
-  """Escape newlines in values to reduce log injection risk."""
+  """Return a sanitized string safe for logging with newlines and carriage returns escaped."""
   return str(value).replace("\n", "\\n").replace("\r", "\\r")
+
+def escape_concat_path(path):
+  escaped = str(path).replace("\\", "\\\\").replace("'", "\\'")
+  return sanitize_for_log(escaped)
 BITRATE_1080P = 14680064  # Optimized bitrate for 1080p video
 BITRATE_1520P = 18874368  # Optimized bitrate for 1520p video
 BITRATE_2160P = 23068672  # Optimized bitrate for 2160p (4K) video
@@ -32,6 +36,8 @@ HEIGHT_1520P = 1520
 HEIGHT_2160P = 2160
 MAXRATE_MULTIPLIER = 1.5
 BUFSIZE_MULTIPLIER = 4
+GOPRO_PREFIX_LENGTH = 4
+MP4_EXTENSION_LENGTH = 4
 
 class VideoConversionError(Exception):
   """Raised when video processing operations fail (probe, organize, convert), chaining errors."""
@@ -155,10 +161,13 @@ def videostofolders(contents, path):
   listOfSequences = []
   for file in files:
     if "GH" in file or "GX" in file:
-      if file[4:][:-4] not in listOfSequences:
-        listOfSequences.append(file[4:][:-4])
-    elif file[:-4] not in listOfSequences:
-      listOfSequences.append(file[:-4])
+      file_sequence = file[GOPRO_PREFIX_LENGTH:][:-MP4_EXTENSION_LENGTH]
+      if file_sequence not in listOfSequences:
+        listOfSequences.append(file_sequence)
+    else:
+      file_sequence = file[:-MP4_EXTENSION_LENGTH]
+      if file_sequence not in listOfSequences:
+        listOfSequences.append(file_sequence)
 
   try:
     # Creating folders for each sequence
@@ -169,9 +178,9 @@ def videostofolders(contents, path):
     for sequence in listOfSequences:
       for file in files:
         if "GH" in file or "GX" in file:
-          file_sequence = file[4:][:-4]
+          file_sequence = file[GOPRO_PREFIX_LENGTH:][:-MP4_EXTENSION_LENGTH]
         else:
-          file_sequence = file[:-4]
+          file_sequence = file[:-MP4_EXTENSION_LENGTH]
 
         if file_sequence == sequence:
           os.rename(os.path.join(path, file), os.path.join(path, sequence, file))
@@ -222,12 +231,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           # Follow ffmpeg concat demuxer file list format (file '/absolute/path').
           for filename in files:
             file_path = os.path.abspath(os.path.join(path, sequence, filename))
-            escaped_path = (
-              file_path.replace("\\", "\\\\")
-              .replace("'", "\\'")
-              .replace("\n", "\\n")
-              .replace("\r", "\\r")
-            )
+            escaped_path = escape_concat_path(file_path)
             concat_file.write(f"file '{escaped_path}'\n")
 
         quoted_concat = shlex.quote(concat_path)
@@ -246,7 +250,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
 
         if len(file.streams) >= 4:
           if file.streams[3].codec_name == 'bin_data':
-            # This tool only processes streams 0-3 (video, audio, extra, telemetry data).
+            # This tool processes streams 0-2 and conditionally stream 3 (telemetry data).
             ffmpeg_cmd = f"{ffmpeg_cmd} -map 0:3 {quoted_destination}"
             bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{sanitized_sequence}'")
             bash_command(f"udtacopy {quoted_source} {quoted_destination}", f"copying telemetry for '{sanitized_sequence}'")
