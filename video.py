@@ -42,6 +42,8 @@ GOPRO_PREFIX_LENGTH = 4
 MP4_EXTENSION_LENGTH = 4
 
 def get_file_sequence(filename):
+  if len(filename) <= MP4_EXTENSION_LENGTH:
+    return filename
   if filename.startswith("GH") or filename.startswith("GX"):
     return filename[GOPRO_PREFIX_LENGTH:][:-MP4_EXTENSION_LENGTH]
   return filename[:-MP4_EXTENSION_LENGTH]
@@ -164,10 +166,12 @@ def videostofolders(contents, path):
     if "MP4" in content or "mp4" in content:
       files.append(content)
 
+  file_sequences = {file: get_file_sequence(file) for file in files}
+
   # Getting all unique sequences
   listOfSequences = []
   for file in files:
-    file_sequence = get_file_sequence(file)
+    file_sequence = file_sequences[file]
     if file_sequence not in listOfSequences:
       listOfSequences.append(file_sequence)
 
@@ -179,7 +183,7 @@ def videostofolders(contents, path):
     # Moving files to their respective folders
     for sequence in listOfSequences:
       for file in files:
-        file_sequence = get_file_sequence(file)
+        file_sequence = file_sequences[file]
 
         if file_sequence == sequence:
           os.rename(os.path.join(path, file), os.path.join(path, sequence, file))
@@ -249,7 +253,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
 
         if len(file.streams) >= 4:
           if file.streams[3].codec_name == 'bin_data':
-            # This tool processes streams 0-1 and conditionally stream 3 (telemetry data).
+            # This tool processes streams 0-1 and conditionally stream 3 when telemetry is present.
             ffmpeg_cmd = f"{ffmpeg_cmd} -map 0:3 {quoted_destination}"
             bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{sanitized_sequence}'")
             bash_command(f"udtacopy {quoted_source} {quoted_destination}", f"copying telemetry for '{sanitized_sequence}'")
