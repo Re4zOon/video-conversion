@@ -31,7 +31,7 @@ def escape_concat_path(path):
   return sanitize_for_log(escaped)
 
 def get_file_sequence(filename):
-  if "GH" in filename or "GX" in filename:
+  if filename.startswith("GH") or filename.startswith("GX"):
     return filename[GOPRO_PREFIX_LENGTH:][:-MP4_EXTENSION_LENGTH]
   return filename[:-MP4_EXTENSION_LENGTH]
 BITRATE_1080P = 14680064  # Optimized bitrate for 1080p video
@@ -275,9 +275,12 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
         try:
           shutil.copystat(source, destination)
         except OSError as exc:
-          raise VideoConversionError(
-            f"Failed to copy file metadata from '{sanitized_source}' to '{sanitized_destination}': {exc}"
-          ) from exc
+          logger.warning(
+            "Failed to copy file metadata from '%s' to '%s': %s",
+            sanitized_source,
+            sanitized_destination,
+            exc,
+          )
       finally:
         if concat_path:
           try:

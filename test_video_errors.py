@@ -158,10 +158,10 @@ def test_convert_videos_rejects_missing_telemetry(monkeypatch, tmp_path):
             return ["GH010003.MP4"]
         return []
 
-    streams_with_invalid_telemetry = [DummyStream() for _ in range(3)] + [DummyStream(codec_name="h264")]
+    streams_with_wrong_telemetry_codec = [DummyStream() for _ in range(3)] + [DummyStream(codec_name="h264")]
 
     monkeypatch.setattr(video.os, "listdir", fake_listdir)
-    monkeypatch.setattr(video, "probeVideo", lambda _source: DummyProbe(streams_with_invalid_telemetry))
+    monkeypatch.setattr(video, "probeVideo", lambda _source: DummyProbe(streams_with_wrong_telemetry_codec))
     monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
 
     with pytest.raises(video.VideoConversionError, match="Expected bin_data stream"):
