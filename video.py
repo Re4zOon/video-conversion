@@ -15,8 +15,8 @@ import tempfile
 
 logger = logging.getLogger(__name__)
 
-_TEMP_FILES = set()
-_PARTIAL_OUTPUTS = set()
+_TRACKED_TEMP_FILES = set()
+_TRACKED_PARTIAL_OUTPUTS = set()
 _SIGNAL_HANDLED = False
 _TEMP_LOCK = RLock()
 
@@ -36,27 +36,27 @@ def sanitize_for_log(value):
 def register_temp_file(path):
   if path:
     with _TEMP_LOCK:
-      _TEMP_FILES.add(path)
+      _TRACKED_TEMP_FILES.add(path)
 
 def unregister_temp_file(path):
   if path:
     with _TEMP_LOCK:
-      _TEMP_FILES.discard(path)
+      _TRACKED_TEMP_FILES.discard(path)
 
 def register_partial_output(path):
   if path:
     with _TEMP_LOCK:
-      _PARTIAL_OUTPUTS.add(path)
+      _TRACKED_PARTIAL_OUTPUTS.add(path)
 
 def unregister_partial_output(path):
   if path:
     with _TEMP_LOCK:
-      _PARTIAL_OUTPUTS.discard(path)
+      _TRACKED_PARTIAL_OUTPUTS.discard(path)
 
 def cleanup_temporary_artifacts():
   with _TEMP_LOCK:
-    temp_files = list(_TEMP_FILES)
-    partial_outputs = list(_PARTIAL_OUTPUTS)
+    temp_files = list(_TRACKED_TEMP_FILES)
+    partial_outputs = list(_TRACKED_PARTIAL_OUTPUTS)
 
   for path in temp_files:
     try:
@@ -117,8 +117,9 @@ MAXRATE_MULTIPLIER = 1.5
 BUFSIZE_MULTIPLIER = 4
 GOPRO_PREFIX_LENGTH = 4
 MP4_EXTENSION_LENGTH = 4
-EXIT_CODE_SIGINT = 130
-EXIT_CODE_SIGTERM = 143
+EXIT_CODE_SIGINT = 130  # Standard Unix exit code for SIGINT (128 + 2).
+EXIT_CODE_SIGTERM = 143  # Standard Unix exit code for SIGTERM (128 + 15).
+PARTIAL_OUTPUT_SUFFIX = ".partial"
 
 def get_file_sequence(filename):
   if len(filename) <= MP4_EXTENSION_LENGTH:
@@ -288,6 +289,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
   for sequence in _listOfSequences:
     try:
       partial_destination = None
+      conversion_successful = False
       files = os.listdir(os.path.join(path, sequence))
       files.sort()
       if not files:
@@ -297,7 +299,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
       if resume and os.path.exists(destination):
         logger.info("Skipping sequence %s because output already exists (resume enabled).", sequence)
         continue
-      partial_destination = f"{destination}.partial"
+      partial_destination = f"{destination}{PARTIAL_OUTPUT_SUFFIX}"
       register_partial_output(partial_destination)
       try:
         os.unlink(partial_destination)
@@ -373,10 +375,10 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           )
 
         try:
-          # Atomic on POSIX filesystems to ensure only fully completed outputs replace the final file.
+          # Atomic move ensures only fully completed outputs replace the final file.
           os.replace(partial_destination, destination)
           unregister_partial_output(partial_destination)
-          partial_destination = None
+          conversion_successful = True
         except OSError as exc:
           raise VideoConversionError(
             f"Failed to finalize output file for '{sanitized_sequence}': {exc}"
@@ -396,8 +398,8 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
             logger.warning("Failed to clean up temporary concat file %s: %s", concat_path, exc)
           finally:
             unregister_temp_file(concat_path)
-        # partial_destination is set to None after a successful finalize to prevent cleanup.
-        if partial_destination:
+        # Skip partial cleanup once the output has been finalized successfully.
+        if partial_destination and not conversion_successful:
           try:
             os.unlink(partial_destination)
           except FileNotFoundError:
