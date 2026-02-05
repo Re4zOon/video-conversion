@@ -13,6 +13,7 @@ import tempfile
 logger = logging.getLogger(__name__)
 
 def configure_logging():
+  """Configure logging based on the GOPRO_LOG_LEVEL environment variable."""
   log_level_name = os.getenv("GOPRO_LOG_LEVEL", "INFO").upper()
   allowed_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
   if log_level_name not in allowed_levels:
@@ -21,6 +22,7 @@ def configure_logging():
   logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 
 def sanitize_for_log(value):
+  """Escape newlines in values to reduce log injection risk."""
   return str(value).replace("\n", "\\n").replace("\r", "\\r")
 BITRATE_1080P = 14680064  # Optimized bitrate for 1080p video
 BITRATE_1520P = 18874368  # Optimized bitrate for 1520p video
