@@ -30,10 +30,6 @@ def escape_concat_path(path):
   escaped = str(path).replace("\\", "\\\\").replace("'", "\\'")
   return sanitize_for_log(escaped)
 
-def get_file_sequence(filename):
-  if filename.startswith("GH") or filename.startswith("GX"):
-    return filename[GOPRO_PREFIX_LENGTH:][:-MP4_EXTENSION_LENGTH]
-  return filename[:-MP4_EXTENSION_LENGTH]
 BITRATE_1080P = 14680064  # Optimized bitrate for 1080p video
 BITRATE_1520P = 18874368  # Optimized bitrate for 1520p video
 BITRATE_2160P = 23068672  # Optimized bitrate for 2160p (4K) video
@@ -44,6 +40,11 @@ MAXRATE_MULTIPLIER = 1.5
 BUFSIZE_MULTIPLIER = 4
 GOPRO_PREFIX_LENGTH = 4
 MP4_EXTENSION_LENGTH = 4
+
+def get_file_sequence(filename):
+  if filename.startswith("GH") or filename.startswith("GX"):
+    return filename[GOPRO_PREFIX_LENGTH:][:-MP4_EXTENSION_LENGTH]
+  return filename[:-MP4_EXTENSION_LENGTH]
 
 class VideoConversionError(Exception):
   """Raised when video processing operations fail (probe, organize, convert), chaining errors."""
@@ -275,12 +276,9 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
         try:
           shutil.copystat(source, destination)
         except OSError as exc:
-          logger.warning(
-            "Failed to copy file metadata from '%s' to '%s': %s",
-            sanitized_source,
-            sanitized_destination,
-            exc,
-          )
+          raise VideoConversionError(
+            f"Failed to copy file metadata from '{sanitized_source}' to '{sanitized_destination}': {exc}"
+          ) from exc
       finally:
         if concat_path:
           try:
