@@ -8,6 +8,7 @@ import logging
 import shlex
 import signal
 import atexit
+from threading import RLock
 from ffprobe import FFProbe
 import shutil
 import tempfile
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 _TEMP_FILES = set()
 _PARTIAL_OUTPUTS = set()
 _SIGNAL_HANDLED = False
+_TEMP_LOCK = RLock()
 
 def configure_logging():
   """Configure logging based on the GOPRO_LOG_LEVEL environment variable."""
@@ -33,38 +35,48 @@ def sanitize_for_log(value):
 
 def register_temp_file(path):
   if path:
-    _TEMP_FILES.add(path)
+    with _TEMP_LOCK:
+      _TEMP_FILES.add(path)
 
 def unregister_temp_file(path):
   if path:
-    _TEMP_FILES.discard(path)
+    with _TEMP_LOCK:
+      _TEMP_FILES.discard(path)
 
 def register_partial_output(path):
   if path:
-    _PARTIAL_OUTPUTS.add(path)
+    with _TEMP_LOCK:
+      _PARTIAL_OUTPUTS.add(path)
 
 def unregister_partial_output(path):
   if path:
-    _PARTIAL_OUTPUTS.discard(path)
+    with _TEMP_LOCK:
+      _PARTIAL_OUTPUTS.discard(path)
 
 def cleanup_temporary_artifacts():
-  for path in list(_TEMP_FILES):
+  with _TEMP_LOCK:
+    temp_files = list(_TEMP_FILES)
+    partial_outputs = list(_PARTIAL_OUTPUTS)
+
+  for path in temp_files:
     try:
-      if os.path.exists(path):
-        os.unlink(path)
+      os.unlink(path)
+    except FileNotFoundError:
+      pass
     except OSError as exc:
       logger.warning("Failed to clean up temporary file %s: %s", path, exc)
     finally:
-      _TEMP_FILES.discard(path)
+      unregister_temp_file(path)
 
-  for path in list(_PARTIAL_OUTPUTS):
+  for path in partial_outputs:
     try:
-      if os.path.exists(path):
-        os.unlink(path)
+      os.unlink(path)
+    except FileNotFoundError:
+      pass
     except OSError as exc:
       logger.warning("Failed to clean up partial output %s: %s", path, exc)
     finally:
-      _PARTIAL_OUTPUTS.discard(path)
+      unregister_partial_output(path)
 
 def handle_shutdown_signal(signum, _frame):
   global _SIGNAL_HANDLED
@@ -73,7 +85,7 @@ def handle_shutdown_signal(signum, _frame):
   _SIGNAL_HANDLED = True
   logger.info("Received signal %s. Cleaning up temporary files.", signum)
   cleanup_temporary_artifacts()
-  raise KeyboardInterrupt
+  raise SystemExit(128 + signum)
 
 def configure_signal_handlers():
   signal.signal(signal.SIGINT, handle_shutdown_signal)
@@ -279,13 +291,14 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
         logger.info("Skipping sequence %s because output already exists (resume enabled).", sequence)
         continue
       partial_destination = f"{destination}.partial"
-      if os.path.exists(partial_destination):
-        try:
-          os.unlink(partial_destination)
-        except OSError as exc:
-          raise VideoConversionError(
-            f"Failed to remove stale partial output '{partial_destination}': {exc}"
-          ) from exc
+      try:
+        os.unlink(partial_destination)
+      except FileNotFoundError:
+        pass
+      except OSError as exc:
+        raise VideoConversionError(
+          f"Failed to remove stale partial output '{partial_destination}': {exc}"
+        ) from exc
       register_partial_output(partial_destination)
       file = probeVideo(source)
       if len(file.streams) < 2:
