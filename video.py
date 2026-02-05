@@ -18,7 +18,7 @@ def configure_logging():
   allowed_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
   if log_level_name not in allowed_levels:
     log_level_name = "INFO"
-  log_level = getattr(logging, log_level_name, logging.INFO)
+  log_level = getattr(logging, log_level_name)
   logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 
 def sanitize_for_log(value):
@@ -26,9 +26,14 @@ def sanitize_for_log(value):
   return str(value).replace("\n", "\\n").replace("\r", "\\r")
 
 def escape_concat_path(path):
-  """Escape concat file paths and sanitize them for logging output."""
-  escaped = str(path).replace("\\", "\\\\").replace("'", "\\'")
-  return sanitize_for_log(escaped)
+  """Escape file paths for use in ffmpeg concat files."""
+  return (
+    str(path)
+    .replace("\\", "\\\\")
+    .replace("'", "\\'")
+    .replace("\n", "\\n")
+    .replace("\r", "\\r")
+  )
 
 BITRATE_1080P = 14680064  # Optimized bitrate for 1080p video
 BITRATE_1520P = 18874368  # Optimized bitrate for 1520p video
