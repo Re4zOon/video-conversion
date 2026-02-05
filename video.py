@@ -26,8 +26,14 @@ def sanitize_for_log(value):
   return str(value).replace("\n", "\\n").replace("\r", "\\r")
 
 def escape_concat_path(path):
+  """Escape concat file paths and sanitize them for logging output."""
   escaped = str(path).replace("\\", "\\\\").replace("'", "\\'")
   return sanitize_for_log(escaped)
+
+def get_file_sequence(filename):
+  if "GH" in filename or "GX" in filename:
+    return filename[GOPRO_PREFIX_LENGTH:][:-MP4_EXTENSION_LENGTH]
+  return filename[:-MP4_EXTENSION_LENGTH]
 BITRATE_1080P = 14680064  # Optimized bitrate for 1080p video
 BITRATE_1520P = 18874368  # Optimized bitrate for 1520p video
 BITRATE_2160P = 23068672  # Optimized bitrate for 2160p (4K) video
@@ -160,14 +166,9 @@ def videostofolders(contents, path):
   # Getting all unique sequences
   listOfSequences = []
   for file in files:
-    if "GH" in file or "GX" in file:
-      file_sequence = file[GOPRO_PREFIX_LENGTH:][:-MP4_EXTENSION_LENGTH]
-      if file_sequence not in listOfSequences:
-        listOfSequences.append(file_sequence)
-    else:
-      file_sequence = file[:-MP4_EXTENSION_LENGTH]
-      if file_sequence not in listOfSequences:
-        listOfSequences.append(file_sequence)
+    file_sequence = get_file_sequence(file)
+    if file_sequence not in listOfSequences:
+      listOfSequences.append(file_sequence)
 
   try:
     # Creating folders for each sequence
@@ -177,10 +178,7 @@ def videostofolders(contents, path):
     # Moving files to their respective folders
     for sequence in listOfSequences:
       for file in files:
-        if "GH" in file or "GX" in file:
-          file_sequence = file[GOPRO_PREFIX_LENGTH:][:-MP4_EXTENSION_LENGTH]
-        else:
-          file_sequence = file[:-MP4_EXTENSION_LENGTH]
+        file_sequence = get_file_sequence(file)
 
         if file_sequence == sequence:
           os.rename(os.path.join(path, file), os.path.join(path, sequence, file))
@@ -250,7 +248,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
 
         if len(file.streams) >= 4:
           if file.streams[3].codec_name == 'bin_data':
-            # This tool processes streams 0-2 and conditionally stream 3 (telemetry data).
+            # This tool processes streams 0-1 and conditionally stream 3 (telemetry data).
             ffmpeg_cmd = f"{ffmpeg_cmd} -map 0:3 {quoted_destination}"
             bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{sanitized_sequence}'")
             bash_command(f"udtacopy {quoted_source} {quoted_destination}", f"copying telemetry for '{sanitized_sequence}'")
