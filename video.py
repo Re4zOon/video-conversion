@@ -375,7 +375,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           )
 
         try:
-          # Atomic move ensures only fully completed outputs replace the final file.
+          # Atomic move when source/destination are on the same filesystem.
           os.replace(partial_destination, destination)
           unregister_partial_output(partial_destination)
           conversion_successful = True
@@ -398,7 +398,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
             logger.warning("Failed to clean up temporary concat file %s: %s", concat_path, exc)
           finally:
             unregister_temp_file(concat_path)
-        # Skip partial cleanup once the output has been finalized successfully.
+        # Skip partial cleanup when the output is finalized or resume skipped the sequence.
         if partial_destination and not conversion_successful:
           try:
             os.unlink(partial_destination)
