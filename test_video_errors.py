@@ -141,6 +141,7 @@ def test_convert_videos_rejects_three_streams(monkeypatch, tmp_path):
     monkeypatch.setattr(video.os, "listdir", fake_listdir)
     monkeypatch.setattr(video, "probeVideo", lambda _source: DummyProbe([DummyStream()] * 3))
     monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: None)
 
     with pytest.raises(video.VideoConversionError, match="Unsupported stream layout"):
         video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0002"])
@@ -163,6 +164,7 @@ def test_convert_videos_rejects_missing_telemetry(monkeypatch, tmp_path):
     monkeypatch.setattr(video.os, "listdir", fake_listdir)
     monkeypatch.setattr(video, "probeVideo", lambda _source: DummyProbe(streams_with_wrong_telemetry_codec))
     monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: None)
 
     with pytest.raises(video.VideoConversionError, match="Expected bin_data stream"):
         video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0003"])
