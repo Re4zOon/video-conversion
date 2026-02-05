@@ -158,7 +158,7 @@ def test_convert_videos_rejects_missing_telemetry(monkeypatch, tmp_path):
             return ["GH010003.MP4"]
         return []
 
-    bad_telemetry_streams = [DummyStream()] * 4
+    bad_telemetry_streams = [DummyStream() for _ in range(4)]
     bad_telemetry_streams[3] = DummyStream(codec_name="h264")
 
     monkeypatch.setattr(video.os, "listdir", fake_listdir)
