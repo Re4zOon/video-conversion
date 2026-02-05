@@ -84,9 +84,10 @@ def cleanup_tracked_path(path, label, unregister_callback=None, *, raise_on_erro
 
 def handle_shutdown_signal(signum, _frame):
   global _SIGNAL_HANDLED
-  if _SIGNAL_HANDLED:
-    return
-  _SIGNAL_HANDLED = True
+  with _TEMP_LOCK:
+    if _SIGNAL_HANDLED:
+      return
+    _SIGNAL_HANDLED = True
   logger.info("Received signal %s. Cleaning up temporary files.", signum)
   cleanup_temporary_artifacts()
   if signum == signal.SIGINT:
@@ -301,6 +302,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
         logger.info("Skipping sequence %s because output already exists (resume enabled).", sequence)
         continue
       partial_destination = f"{destination}{PARTIAL_OUTPUT_SUFFIX}"
+      # Fail fast if the stale partial output cannot be removed before converting.
       cleanup_tracked_path(partial_destination, "stale partial output", raise_on_error=True)
       register_partial_output(partial_destination)
       file = probeVideo(source)
