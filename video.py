@@ -85,6 +85,10 @@ def handle_shutdown_signal(signum, _frame):
   _SIGNAL_HANDLED = True
   logger.info("Received signal %s. Cleaning up temporary files.", signum)
   cleanup_temporary_artifacts()
+  if signum == signal.SIGINT:
+    raise SystemExit(130)
+  if signum == signal.SIGTERM:
+    raise SystemExit(143)
   raise SystemExit(128 + signum)
 
 def configure_signal_handlers():
@@ -291,6 +295,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
         logger.info("Skipping sequence %s because output already exists (resume enabled).", sequence)
         continue
       partial_destination = f"{destination}.partial"
+      register_partial_output(partial_destination)
       try:
         os.unlink(partial_destination)
       except FileNotFoundError:
@@ -299,7 +304,6 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
         raise VideoConversionError(
           f"Failed to remove stale partial output '{partial_destination}': {exc}"
         ) from exc
-      register_partial_output(partial_destination)
       file = probeVideo(source)
       if len(file.streams) < 2:
         raise VideoConversionError(
@@ -390,8 +394,9 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
             unregister_temp_file(concat_path)
         if partial_destination:
           try:
-            if os.path.exists(partial_destination):
-              os.unlink(partial_destination)
+            os.unlink(partial_destination)
+          except FileNotFoundError:
+            pass
           except OSError as exc:
             logger.warning("Failed to clean up partial output %s: %s", partial_destination, exc)
           finally:
