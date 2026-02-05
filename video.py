@@ -19,6 +19,9 @@ _TRACKED_TEMP_FILES = set()
 _TRACKED_PARTIAL_OUTPUTS = set()
 _SIGNAL_HANDLED = False
 _TEMP_LOCK = RLock()
+EXIT_CODE_SIGINT = 130  # Standard Unix exit code for SIGINT (128 + 2).
+EXIT_CODE_SIGTERM = 143  # Standard Unix exit code for SIGTERM (128 + 15).
+PARTIAL_OUTPUT_SUFFIX = ".partial"
 
 def configure_logging():
   """Configure logging based on the GOPRO_LOG_LEVEL environment variable."""
@@ -64,7 +67,7 @@ def cleanup_temporary_artifacts():
   for path in partial_outputs:
     cleanup_tracked_path(path, "partial output", unregister_partial_output)
 
-def cleanup_tracked_path(path, label, unregister_callback):
+def cleanup_tracked_path(path, label, unregister_callback=None, *, raise_on_error=False):
   if not path:
     return
   try:
@@ -72,9 +75,12 @@ def cleanup_tracked_path(path, label, unregister_callback):
   except FileNotFoundError:
     pass
   except OSError as exc:
+    if raise_on_error:
+      raise VideoConversionError(f"Failed to clean up {label} '{path}': {exc}") from exc
     logger.warning("Failed to clean up %s %s: %s", label, path, exc)
   finally:
-    unregister_callback(path)
+    if unregister_callback:
+      unregister_callback(path)
 
 def handle_shutdown_signal(signum, _frame):
   global _SIGNAL_HANDLED
@@ -115,9 +121,6 @@ MAXRATE_MULTIPLIER = 1.5
 BUFSIZE_MULTIPLIER = 4
 GOPRO_PREFIX_LENGTH = 4
 MP4_EXTENSION_LENGTH = 4
-EXIT_CODE_SIGINT = 130  # Standard Unix exit code for SIGINT (128 + 2).
-EXIT_CODE_SIGTERM = 143  # Standard Unix exit code for SIGTERM (128 + 15).
-PARTIAL_OUTPUT_SUFFIX = ".partial"
 
 def get_file_sequence(filename):
   if len(filename) <= MP4_EXTENSION_LENGTH:
@@ -298,15 +301,8 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
         logger.info("Skipping sequence %s because output already exists (resume enabled).", sequence)
         continue
       partial_destination = f"{destination}{PARTIAL_OUTPUT_SUFFIX}"
+      cleanup_tracked_path(partial_destination, "stale partial output", raise_on_error=True)
       register_partial_output(partial_destination)
-      try:
-        os.unlink(partial_destination)
-      except FileNotFoundError:
-        pass
-      except OSError as exc:
-        raise VideoConversionError(
-          f"Failed to remove stale partial output '{partial_destination}': {exc}"
-        ) from exc
       file = probeVideo(source)
       if len(file.streams) < 2:
         raise VideoConversionError(
@@ -373,7 +369,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           )
 
         try:
-          # Atomic move when source/destination are on the same filesystem.
+          # Atomic when source/destination are on the same filesystem; ensures completed outputs replace the final file.
           os.replace(partial_destination, destination)
           unregister_partial_output(partial_destination)
           conversion_successful = True
