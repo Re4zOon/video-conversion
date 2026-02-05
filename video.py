@@ -59,24 +59,22 @@ def cleanup_temporary_artifacts():
     partial_outputs = list(_TRACKED_PARTIAL_OUTPUTS)
 
   for path in temp_files:
-    try:
-      os.unlink(path)
-    except FileNotFoundError:
-      pass
-    except OSError as exc:
-      logger.warning("Failed to clean up temporary file %s: %s", path, exc)
-    finally:
-      unregister_temp_file(path)
+    cleanup_tracked_path(path, "temporary file", unregister_temp_file)
 
   for path in partial_outputs:
-    try:
-      os.unlink(path)
-    except FileNotFoundError:
-      pass
-    except OSError as exc:
-      logger.warning("Failed to clean up partial output %s: %s", path, exc)
-    finally:
-      unregister_partial_output(path)
+    cleanup_tracked_path(path, "partial output", unregister_partial_output)
+
+def cleanup_tracked_path(path, label, unregister_callback):
+  if not path:
+    return
+  try:
+    os.unlink(path)
+  except FileNotFoundError:
+    pass
+  except OSError as exc:
+    logger.warning("Failed to clean up %s %s: %s", label, path, exc)
+  finally:
+    unregister_callback(path)
 
 def handle_shutdown_signal(signum, _frame):
   global _SIGNAL_HANDLED
@@ -392,22 +390,10 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           ) from exc
       finally:
         if concat_path:
-          try:
-            os.unlink(concat_path)
-          except OSError as exc:
-            logger.warning("Failed to clean up temporary concat file %s: %s", concat_path, exc)
-          finally:
-            unregister_temp_file(concat_path)
-        # Skip partial cleanup when the output is finalized or resume skipped the sequence.
+          cleanup_tracked_path(concat_path, "temporary concat file", unregister_temp_file)
+        # Skip partial cleanup when the output is finalized or resume has skipped the sequence.
         if partial_destination and not conversion_successful:
-          try:
-            os.unlink(partial_destination)
-          except FileNotFoundError:
-            pass
-          except OSError as exc:
-            logger.warning("Failed to clean up partial output %s: %s", partial_destination, exc)
-          finally:
-            unregister_partial_output(partial_destination)
+          cleanup_tracked_path(partial_destination, "partial output", unregister_partial_output)
     except VideoConversionError:
       raise
     except (OSError, IndexError, AttributeError, subprocess.SubprocessError) as exc:
