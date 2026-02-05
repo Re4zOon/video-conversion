@@ -197,6 +197,35 @@ def test_convert_videos_resume_skips_existing_output(monkeypatch, tmp_path):
     assert not calls
 
 
+def test_convert_videos_resume_allows_conversion(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0005"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010005.MP4"
+    source_path.write_text("video")
+
+    def fake_listdir(path):
+        if path == str(tmp_path):
+            return ["0005"]
+        if path == str(sequence_path):
+            return ["GH010005.MP4"]
+        return []
+
+    replace_calls = []
+    bash_calls = []
+
+    monkeypatch.setattr(video.os, "listdir", fake_listdir)
+    monkeypatch.setattr(video, "probeVideo", lambda _source: DummyProbe([DummyStream(), DummyStream()]))
+    monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: bash_calls.append(True))
+    monkeypatch.setattr(video.os, "replace", lambda *_args: replace_calls.append(True))
+    monkeypatch.setattr(video.shutil, "copystat", lambda *_args, **_kwargs: None)
+
+    video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, resume=True, sequences=["0005"])
+
+    assert bash_calls
+    assert replace_calls
+
+
 def test_cleanup_temporary_artifacts_removes_files(tmp_path):
     temp_file = tmp_path / "concat.txt"
     temp_file.write_text("temp")

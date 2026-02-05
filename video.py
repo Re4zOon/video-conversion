@@ -86,9 +86,9 @@ def handle_shutdown_signal(signum, _frame):
   logger.info("Received signal %s. Cleaning up temporary files.", signum)
   cleanup_temporary_artifacts()
   if signum == signal.SIGINT:
-    raise SystemExit(130)
+    raise SystemExit(EXIT_CODE_SIGINT)
   if signum == signal.SIGTERM:
-    raise SystemExit(143)
+    raise SystemExit(EXIT_CODE_SIGTERM)
   # Fallback for any future signals registered here.
   raise SystemExit(128 + signum)
 
@@ -117,6 +117,8 @@ MAXRATE_MULTIPLIER = 1.5
 BUFSIZE_MULTIPLIER = 4
 GOPRO_PREFIX_LENGTH = 4
 MP4_EXTENSION_LENGTH = 4
+EXIT_CODE_SIGINT = 130
+EXIT_CODE_SIGTERM = 143
 
 def get_file_sequence(filename):
   if len(filename) <= MP4_EXTENSION_LENGTH:
@@ -371,7 +373,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           )
 
         try:
-          # Atomic move ensures only fully completed outputs replace the final file.
+          # Atomic on POSIX filesystems to ensure only fully completed outputs replace the final file.
           os.replace(partial_destination, destination)
           unregister_partial_output(partial_destination)
           partial_destination = None
