@@ -4,8 +4,57 @@ import os
 import sys
 import argparse
 import subprocess
+import logging
+import shlex
 from ffprobe import FFProbe
 import shutil
+import tempfile
+
+logger = logging.getLogger(__name__)
+
+def configure_logging():
+  """Configure logging based on the GOPRO_LOG_LEVEL environment variable."""
+  log_level_name = os.getenv("GOPRO_LOG_LEVEL", "INFO").upper()
+  allowed_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+  if log_level_name not in allowed_levels:
+    log_level_name = "INFO"
+  log_level = getattr(logging, log_level_name, logging.INFO)
+  logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
+
+def sanitize_for_log(value):
+  """Return a sanitized string safe for logging with newlines and carriage returns escaped."""
+  return str(value).replace("\n", "\\n").replace("\r", "\\r")
+
+def escape_concat_path(path):
+  """Escape file paths for use in ffmpeg concat files."""
+  return (
+    str(path)
+    .replace("\\", "\\\\")
+    .replace("'", "\\'")
+    .replace("\n", "\\n")
+    .replace("\r", "\\r")
+  )
+
+BITRATE_1080P = 14680064  # Optimized bitrate for 1080p video
+BITRATE_1520P = 18874368  # Optimized bitrate for 1520p video
+BITRATE_2160P = 23068672  # Optimized bitrate for 2160p (4K) video
+HEIGHT_1080P = 1080
+HEIGHT_1520P = 1520
+HEIGHT_2160P = 2160
+MAXRATE_MULTIPLIER = 1.5
+BUFSIZE_MULTIPLIER = 4
+GOPRO_PREFIX_LENGTH = 4
+MP4_EXTENSION_LENGTH = 4
+
+def get_file_sequence(filename):
+  if len(filename) <= MP4_EXTENSION_LENGTH:
+    return filename
+  if filename.startswith("GH") or filename.startswith("GX"):
+    return filename[GOPRO_PREFIX_LENGTH:][:-MP4_EXTENSION_LENGTH]
+  return filename[:-MP4_EXTENSION_LENGTH]
+
+class VideoConversionError(Exception):
+  """Raised when video processing operations fail (probe, organize, convert), chaining errors."""
 
 def arguments():
 
@@ -21,41 +70,99 @@ def arguments():
   config = vars(args)
   return config
 
-def bash_command(cmd):
-  subprocess.run(['/bin/bash', '-c', cmd])
+def bash_command(cmd, context="command execution"):
 
-def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max):
+  try:
+    subprocess.run(['/bin/bash', '-c', cmd], check=True)
+  except FileNotFoundError as exc:
+    raise VideoConversionError(f"Bash not available during {context}: {exc}") from exc
+  except subprocess.CalledProcessError as exc:
+    raise VideoConversionError(f"Command failed during {context}: {exc}") from exc
 
-  file = FFProbe(source)
+def probeVideo(source):
 
-  match file.streams[0].coded_height:
-    case "1080":
-      bitrate = 14680064
-    case "1520":
-      bitrate = 18874368
-    case "2160":
-      bitrate = 23068672
-    case _:
-      bitrate = int(round(int(file.streams[0].coded_height) * int(file.streams[0].coded_width) * int(file.streams[0].framerate * bitratemodifier)))
+  try:
+    file = FFProbe(source)
+  except FileNotFoundError as exc:
+    raise VideoConversionError(f"Source file not found while probing '{source}': {exc}") from exc
+  except (OSError, subprocess.SubprocessError) as exc:
+    raise VideoConversionError(f"Failed to probe source file '{source}': {exc}") from exc
 
-  bitrate_limit = int(round(int(file.streams[0].bit_rate)*ratio_max))
+  if not file.streams:
+    raise VideoConversionError(f"No streams found in source file '{source}'")
 
-  if bitrate > bitrate_limit:
-    bitrate = bitrate_limit
+  return file
 
-  if bitrate > mbits_max*1024*1024:
-    bitrate = mbits_max*1024*1024
 
-  result = bitrate
-  return result
+def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=None):
+
+  try:
+    file = probe or probeVideo(source)
+    if not file.streams:
+      raise VideoConversionError(f"No streams found in probe for '{source}'")
+    stream = file.streams[0]
+
+    required_fields = {
+      "coded_height": stream.coded_height,
+      "coded_width": stream.coded_width,
+      "framerate": stream.framerate,
+      "bit_rate": stream.bit_rate,
+    }
+    missing_fields = [name for name, value in required_fields.items() if value is None]
+    if missing_fields:
+      raise VideoConversionError(f"Missing stream metadata in '{source}': {', '.join(missing_fields)}")
+
+    try:
+      coded_height = int(stream.coded_height)
+    except (TypeError, ValueError) as exc:
+      raise VideoConversionError(f"Invalid coded_height in '{source}': {stream.coded_height}") from exc
+
+    try:
+      coded_width = int(stream.coded_width)
+    except (TypeError, ValueError) as exc:
+      raise VideoConversionError(f"Invalid coded_width in '{source}': {stream.coded_width}") from exc
+
+    try:
+      framerate = float(stream.framerate)
+    except (TypeError, ValueError) as exc:
+      raise VideoConversionError(f"Invalid framerate in '{source}': {stream.framerate}") from exc
+
+    try:
+      bit_rate = int(stream.bit_rate)
+    except (TypeError, ValueError) as exc:
+      raise VideoConversionError(f"Invalid bit_rate in '{source}': {stream.bit_rate}") from exc
+
+    if coded_height == HEIGHT_1080P:
+      bitrate = BITRATE_1080P
+    elif coded_height == HEIGHT_1520P:
+      bitrate = BITRATE_1520P
+    elif coded_height == HEIGHT_2160P:
+      bitrate = BITRATE_2160P
+    else:
+      bitrate = int(round(coded_height * coded_width * framerate * bitratemodifier))
+
+    bitrate_limit = int(round(bit_rate * ratio_max))
+
+    if bitrate > bitrate_limit:
+      bitrate = bitrate_limit
+
+    if bitrate > mbits_max * 1024 * 1024:
+      bitrate = mbits_max * 1024 * 1024
+
+    result = bitrate
+    return result
+  except VideoConversionError:
+    raise
+  except (OSError, ValueError, TypeError, IndexError, AttributeError, subprocess.SubprocessError) as exc:
+    raise VideoConversionError(f"Failed to calculate bitrate for '{source}': {exc}") from exc
 
 def videostofolders(contents, path):
 
   # Checking if there is anything to move
   if any(".MP4" in word for word in contents) or any(".mp4" in word for word in contents):
-    print("There is something to sort")
+    logger.info("There is something to sort")
   else:
-    print("There is nothing to sort")
+    logger.info("There is nothing to sort")
     return []
 
   files = []
@@ -64,73 +171,133 @@ def videostofolders(contents, path):
     if "MP4" in content or "mp4" in content:
       files.append(content)
 
+  file_sequences = {file: get_file_sequence(file) for file in files}
+
   # Getting all unique sequences
   listOfSequences = []
   for file in files:
-    if "GH" in file or "GX" in file:
-      if file[4:][:-4] not in listOfSequences:
-        listOfSequences.append(file[4:][:-4])
-    elif file[:-4] not in listOfSequences:
-      listOfSequences.append(file[:-4])
+    file_sequence = file_sequences[file]
+    if file_sequence not in listOfSequences:
+      listOfSequences.append(file_sequence)
 
-  # Creating folders for each sequence
-  for sequence in listOfSequences:
-    os.makedirs(path + "/" + sequence, exist_ok=True)
+  try:
+    # Creating folders for each sequence
+    for sequence in listOfSequences:
+      os.makedirs(os.path.join(path, sequence), exist_ok=True)
 
-  # Moving files to their respective folders
-  for sequence in listOfSequences:
-    for file in files:
-      if sequence in file:
-        os.rename(path + "/" + file, path + "/" + sequence + '/' + file)
+    # Moving files to their respective folders
+    for sequence in listOfSequences:
+      for file in files:
+        file_sequence = file_sequences[file]
+
+        if file_sequence == sequence:
+          os.rename(os.path.join(path, file), os.path.join(path, sequence, file))
+  except OSError as exc:
+    raise VideoConversionError(f"Failed to organize videos in '{path}': {exc}") from exc
 
   return listOfSequences
 
 def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert, sequences=None):
 
   # Use provided sequences list or fall back to directory listing
-  if sequences is not None:
-    _listOfSequences = sequences
-  else:
-    _listOfSequences = os.listdir(path)
-    _listOfSequences.sort()
-
-  print("List: ")
-  print(*_listOfSequences, sep = ", ")
-  for sequence in _listOfSequences:
-    files = os.listdir(path + "/" + sequence)
-    files.sort()
-    source = str(path + "/" + sequence + '/' + files[0])
-    destination = str(path + '/' + files[0])
-    bitrate = calculateBitrate(source, bitratemodifier, mbits_max, ratio_max)
-    print()
-    print()
-    print()
-    print("Sequence: " + sequence)
-    file = FFProbe(source)
-    if convert:
-      if len(file.streams) > 2:
-        if file.streams[3].codec_name == 'bin_data':
-          bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + str(bitrate) + ' -maxrate ' + str(bitrate*1.5) + ' -bitrate_limit 0 -bufsize ' + str(bitrate*4) +' -fps_mode passthrough -g 120 -preset slower -look_ahead 1 -map 0:0 -map 0:1 -map 0:3 ' + destination)
-          bash_command('udtacopy ' + source + ' ' + destination)
-          bash_command('exiftool -TagsFromFile ' + source + ' -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate ' + destination)
-        else:
-          print("More, than 2 streams, but no bin_data")
-          exit(1)
-      else:
-        bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) ' + options + ' -b:v ' + str(bitrate) + ' -maxrate ' + str(bitrate*1.5) + ' -bitrate_limit 0 -bufsize ' + str(bitrate*4) +' -fps_mode passthrough -g 120 -preset slower -look_ahead 1 -map 0:0 -map 0:1 ' + destination)
+  try:
+    if sequences is not None:
+      _listOfSequences = sequences
     else:
-      if len(file.streams) > 2:
-        if file.streams[3].codec_name == 'bin_data':
-          bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) -c copy -map 0:0 -map 0:1 -map 0:3 ' + destination)
-          bash_command('udtacopy ' + source + ' ' + destination)
-          bash_command('exiftool -TagsFromFile ' + source + ' -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate ' + destination)
+      _listOfSequences = os.listdir(path)
+      _listOfSequences.sort()
+  except OSError as exc:
+    raise VideoConversionError(f"Unable to list sequences in '{path}': {exc}") from exc
+
+  logger.info("List: %s", ", ".join(_listOfSequences))
+  for sequence in _listOfSequences:
+    try:
+      files = os.listdir(os.path.join(path, sequence))
+      files.sort()
+      if not files:
+        raise VideoConversionError(f"No video files found in sequence '{sequence}'")
+      source = os.path.join(path, sequence, files[0])
+      destination = os.path.join(path, files[0])
+      file = probeVideo(source)
+      if len(file.streams) < 2:
+        raise VideoConversionError(
+          f"Expected at least 2 streams in '{source}' but found {len(file.streams)} stream(s)"
+        )
+      bitrate = calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=file)
+      logger.info("Sequence: %s", sequence)
+
+      quoted_source = shlex.quote(source)
+      quoted_destination = shlex.quote(destination)
+      sanitized_sequence = sanitize_for_log(sequence)
+      sanitized_source = sanitize_for_log(source)
+      sanitized_destination = sanitize_for_log(destination)
+
+      concat_path = None
+      try:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as concat_file:
+          concat_path = concat_file.name
+          # Follow ffmpeg concat demuxer file list format (file '/absolute/path').
+          for filename in files:
+            file_path = os.path.abspath(os.path.join(path, sequence, filename))
+            escaped_path = escape_concat_path(file_path)
+            concat_file.write(f"file '{escaped_path}'\n")
+
+        quoted_concat = shlex.quote(concat_path)
+        concat_cmd = f"ffmpeg -y -f concat -safe 0 -i {quoted_concat} "
+
+        if convert:
+          maxrate = int(bitrate * MAXRATE_MULTIPLIER)
+          bufsize = int(bitrate * BUFSIZE_MULTIPLIER)
+          ffmpeg_cmd = (
+            f"{concat_cmd}{options} -b:v {bitrate} -maxrate {maxrate} "
+            f"-bitrate_limit 0 -bufsize {bufsize} -fps_mode passthrough -g 120 "
+            f"-preset slower -look_ahead 1 -map 0:0 -map 0:1"
+          )
         else:
-          print("More, than 2 streams, but no bin_data")
-          exit(1)
-      else:
-        bash_command('cd ' + path + "/" + sequence + ';ffmpeg -y -f concat -safe 0 -i <(for f in *; do echo \"file \'$PWD/$f\'\"; done) -c copy -map 0:0 -map 0:1 ' + destination)
-        bash_command('exiftool -TagsFromFile ' + source + ' -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate ' + destination)
-    shutil.copystat(source, destination)
+          ffmpeg_cmd = f"{concat_cmd}-c copy -map 0:0 -map 0:1"
+
+        if len(file.streams) >= 4:
+          if file.streams[3].codec_name == 'bin_data':
+            # This tool processes streams 0-1 and conditionally stream 3 when telemetry is present.
+            ffmpeg_cmd = f"{ffmpeg_cmd} -map 0:3 {quoted_destination}"
+            bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{sanitized_sequence}'")
+            bash_command(f"udtacopy {quoted_source} {quoted_destination}", f"copying telemetry for '{sanitized_sequence}'")
+            bash_command(
+              f"exiftool -TagsFromFile {quoted_source} -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate {quoted_destination}",
+              f"copying metadata for '{sanitized_sequence}'"
+            )
+          else:
+            raise VideoConversionError(
+              f"Expected bin_data stream at index 3 in '{source}' but found '{file.streams[3].codec_name}'"
+            )
+        elif len(file.streams) == 3:
+          raise VideoConversionError(
+            f"Unsupported stream layout in '{source}': expected 2 streams (video+audio) or at least 4 streams (video+audio+extra+telemetry), but found {len(file.streams)} stream(s)"
+          )
+        else:
+          ffmpeg_cmd = f"{ffmpeg_cmd} {quoted_destination}"
+          bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{sanitized_sequence}'")
+          bash_command(
+            f"exiftool -TagsFromFile {quoted_source} -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate {quoted_destination}",
+            f"copying metadata for '{sanitized_sequence}'"
+          )
+
+        try:
+          shutil.copystat(source, destination)
+        except OSError as exc:
+          raise VideoConversionError(
+            f"Failed to copy file metadata from '{sanitized_source}' to '{sanitized_destination}': {exc}"
+          ) from exc
+      finally:
+        if concat_path:
+          try:
+            os.unlink(concat_path)
+          except OSError as exc:
+            logger.warning("Failed to clean up temporary concat file %s: %s", concat_path, exc)
+    except VideoConversionError:
+      raise
+    except (OSError, IndexError, AttributeError, subprocess.SubprocessError) as exc:
+      raise VideoConversionError(f"Error processing sequence '{sequence}' in '{path}': {exc}") from exc
 
 def getOptions(codec, accelerator):
 
@@ -146,32 +313,52 @@ def getOptions(codec, accelerator):
     elif codec == "h264":
       options = "-c copy -c:v libx264"
 
+  if not options:
+    raise VideoConversionError(f"Unsupported codec/accelerator combination: {codec}/{accelerator}")
+
   return options
 
 if __name__ == '__main__':
 
-  args = arguments()
+  try:
+    configure_logging()
+    args = arguments()
 
-  # Validate that the videos path exists and is a directory
-  videos_path = args["videos"]
-  if not os.path.exists(videos_path):
-    print(f"Error: The specified path does not exist: {videos_path}", file=sys.stderr)
+    # Validate that the videos path exists and is a directory
+    videos_path = args["videos"]
+    if not os.path.exists(videos_path):
+      logger.error("The specified path does not exist: %s", videos_path)
+      sys.exit(1)
+    if not os.path.isdir(videos_path):
+      logger.error("The specified path is not a directory: %s", videos_path)
+      sys.exit(1)
+
+    try:
+      contents = os.listdir(args["videos"])
+      contents.sort()
+    except OSError as exc:
+      raise VideoConversionError(f"Unable to list contents of '{videos_path}': {exc}") from exc
+
+    # videostofolders now returns the list of sequences
+    sequences = videostofolders(contents, args["videos"])
+
+    # Skip conversion if there are no sequences to process
+    if not sequences:
+      logger.info("No video sequences to convert. Exiting.")
+      sys.exit(0)
+
+    options = getOptions(args["codec"], args["accelerator"])
+
+    convertVideos(args["videos"], options, args["bitratemodifier"], args["mbits_max"], args["ratio_max"], args["convert"], sequences)
+  except VideoConversionError as exc:
+    logger.error("Conversion halted: %s", exc)
     sys.exit(1)
-  if not os.path.isdir(videos_path):
-    print(f"Error: The specified path is not a directory: {videos_path}", file=sys.stderr)
+  except (OSError, PermissionError) as exc:
+    logger.error("Filesystem error during processing: %s", exc)
     sys.exit(1)
-
-  contents = os.listdir(args["videos"])
-  contents.sort()
-
-  # videostofolders now returns the list of sequences
-  sequences = videostofolders(contents, args["videos"])
-
-  # Skip conversion if there are no sequences to process
-  if not sequences:
-    print("No video sequences to convert. Exiting.")
-    sys.exit(0)
-
-  options = getOptions(args["codec"], args["accelerator"])
-
-  convertVideos(args["videos"], options, args["bitratemodifier"], args["mbits_max"], args["ratio_max"], args["convert"], sequences)
+  except KeyboardInterrupt:
+    logger.info("Operation cancelled by user (Ctrl+C).")
+    sys.exit(1)
+  except Exception as exc:
+    logger.exception("Unexpected error: %s", exc)
+    sys.exit(1)
