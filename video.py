@@ -89,6 +89,7 @@ def handle_shutdown_signal(signum, _frame):
     raise SystemExit(130)
   if signum == signal.SIGTERM:
     raise SystemExit(143)
+  # Fallback for any future signals registered here.
   raise SystemExit(128 + signum)
 
 def configure_signal_handlers():
@@ -370,6 +371,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           )
 
         try:
+          # Atomic move ensures only fully completed outputs replace the final file.
           os.replace(partial_destination, destination)
           unregister_partial_output(partial_destination)
           partial_destination = None
