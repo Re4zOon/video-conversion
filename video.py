@@ -18,7 +18,7 @@ def configure_logging():
   allowed_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
   if log_level_name not in allowed_levels:
     log_level_name = "INFO"
-  log_level = getattr(logging, log_level_name)
+  log_level = getattr(logging, log_level_name, logging.INFO)
   logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 
 def sanitize_for_log(value):
