@@ -209,7 +209,9 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
 
       quoted_source = shlex.quote(source)
       quoted_destination = shlex.quote(destination)
-      safe_sequence = sanitize_for_log(sequence)
+      sanitized_sequence = sanitize_for_log(sequence)
+      sanitized_source = sanitize_for_log(source)
+      sanitized_destination = sanitize_for_log(destination)
 
       concat_path = None
       try:
@@ -242,13 +244,13 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
 
         if len(file.streams) >= 4:
           if file.streams[3].codec_name == 'bin_data':
-            # Extra streams beyond index 3 are ignored by this tool.
+            # This tool only processes streams 0-3 (video, audio, extra, telemetry data).
             ffmpeg_cmd = f"{ffmpeg_cmd} -map 0:3 {quoted_destination}"
-            bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{safe_sequence}'")
-            bash_command(f"udtacopy {quoted_source} {quoted_destination}", f"copying telemetry for '{safe_sequence}'")
+            bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{sanitized_sequence}'")
+            bash_command(f"udtacopy {quoted_source} {quoted_destination}", f"copying telemetry for '{sanitized_sequence}'")
             bash_command(
               f"exiftool -TagsFromFile {quoted_source} -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate {quoted_destination}",
-              f"copying metadata for '{safe_sequence}'"
+              f"copying metadata for '{sanitized_sequence}'"
             )
           else:
             raise VideoConversionError(
@@ -260,17 +262,17 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           )
         else:
           ffmpeg_cmd = f"{ffmpeg_cmd} {quoted_destination}"
-          bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{safe_sequence}'")
+          bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{sanitized_sequence}'")
           bash_command(
             f"exiftool -TagsFromFile {quoted_source} -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate {quoted_destination}",
-            f"copying metadata for '{safe_sequence}'"
+            f"copying metadata for '{sanitized_sequence}'"
           )
 
         try:
           shutil.copystat(source, destination)
         except OSError as exc:
           raise VideoConversionError(
-            f"Failed to copy file metadata from '{source}' to '{destination}': {exc}"
+            f"Failed to copy file metadata from '{sanitized_source}' to '{sanitized_destination}': {exc}"
           ) from exc
       finally:
         if concat_path:
