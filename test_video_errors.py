@@ -168,3 +168,45 @@ def test_convert_videos_rejects_missing_telemetry(monkeypatch, tmp_path):
 
     with pytest.raises(video.VideoConversionError, match="Expected bin_data stream"):
         video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0003"])
+
+
+def test_convert_videos_resume_skips_existing_output(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0004"
+    sequence_path.mkdir()
+    (sequence_path / "GH010004.MP4").write_text("video")
+    (tmp_path / "GH010004.MP4").write_text("existing")
+
+    def fake_listdir(path):
+        if path == str(tmp_path):
+            return ["0004"]
+        if path == str(sequence_path):
+            return ["GH010004.MP4"]
+        return []
+
+    def fail_probe(_source):
+        raise AssertionError("probe should not be called")
+
+    calls = []
+
+    monkeypatch.setattr(video.os, "listdir", fake_listdir)
+    monkeypatch.setattr(video, "probeVideo", fail_probe)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: calls.append(True))
+
+    video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, resume=True, sequences=["0004"])
+
+    assert not calls
+
+
+def test_cleanup_temporary_artifacts_removes_files(tmp_path):
+    temp_file = tmp_path / "concat.txt"
+    temp_file.write_text("temp")
+    partial_file = tmp_path / "output.mp4.partial"
+    partial_file.write_text("temp")
+
+    video.register_temp_file(str(temp_file))
+    video.register_partial_output(str(partial_file))
+
+    video.cleanup_temporary_artifacts()
+
+    assert not temp_file.exists()
+    assert not partial_file.exists()
