@@ -286,8 +286,8 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
 
   logger.info("List: %s", ", ".join(_listOfSequences))
   for sequence in _listOfSequences:
-    partial_destination = None
     try:
+      partial_destination = None
       files = os.listdir(os.path.join(path, sequence))
       files.sort()
       if not files:
@@ -396,6 +396,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
             logger.warning("Failed to clean up temporary concat file %s: %s", concat_path, exc)
           finally:
             unregister_temp_file(concat_path)
+        # partial_destination is set to None after a successful finalize to prevent cleanup.
         if partial_destination:
           try:
             os.unlink(partial_destination)
