@@ -10,14 +10,18 @@ from ffprobe import FFProbe
 import shutil
 import tempfile
 
-log_level_name = os.getenv("GOPRO_LOG_LEVEL", "INFO").upper()
-allowed_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-if log_level_name not in allowed_levels:
-  log_level_name = "INFO"
-log_level = getattr(logging, log_level_name, logging.INFO)
-logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+def configure_logging():
+  log_level_name = os.getenv("GOPRO_LOG_LEVEL", "INFO").upper()
+  allowed_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+  if log_level_name not in allowed_levels:
+    log_level_name = "INFO"
+  log_level = getattr(logging, log_level_name, logging.INFO)
+  logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
+
+def sanitize_for_log(value):
+  return str(value).replace("\n", "\\n").replace("\r", "\\r")
 BITRATE_1080P = 14680064  # Optimized bitrate for 1080p video
 BITRATE_1520P = 18874368  # Optimized bitrate for 1520p video
 BITRATE_2160P = 23068672  # Optimized bitrate for 2160p (4K) video
@@ -72,6 +76,8 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=None):
 
   try:
     file = probe or probeVideo(source)
+    if not file.streams:
+      raise VideoConversionError(f"No streams in probe for '{source}'")
     stream = file.streams[0]
 
     required_fields = {
@@ -125,16 +131,16 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=None):
     return result
   except VideoConversionError:
     raise
-  except (OSError, ValueError, TypeError, IndexError, AttributeError, subprocess.SubprocessError) as exc:
+  except (OSError, ValueError, TypeError, AttributeError, subprocess.SubprocessError) as exc:
     raise VideoConversionError(f"Failed to calculate bitrate for '{source}': {exc}") from exc
 
 def videostofolders(contents, path):
 
   # Checking if there is anything to move
   if any(".MP4" in word for word in contents) or any(".mp4" in word for word in contents):
-    print("There is something to sort")
+    logger.info("There is something to sort")
   else:
-    print("There is nothing to sort")
+    logger.info("There is nothing to sort")
     return []
 
   files = []
@@ -155,13 +161,18 @@ def videostofolders(contents, path):
   try:
     # Creating folders for each sequence
     for sequence in listOfSequences:
-      os.makedirs(path + "/" + sequence, exist_ok=True)
+      os.makedirs(os.path.join(path, sequence), exist_ok=True)
 
     # Moving files to their respective folders
     for sequence in listOfSequences:
       for file in files:
-        if sequence in file:
-          os.rename(path + "/" + file, path + "/" + sequence + '/' + file)
+        if "GH" in file or "GX" in file:
+          file_sequence = file[4:][:-4]
+        else:
+          file_sequence = file[:-4]
+
+        if file_sequence == sequence:
+          os.rename(os.path.join(path, file), os.path.join(path, sequence, file))
   except OSError as exc:
     raise VideoConversionError(f"Failed to organize videos in '{path}': {exc}") from exc
 
@@ -179,8 +190,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
   except OSError as exc:
     raise VideoConversionError(f"Unable to list sequences in '{path}': {exc}") from exc
 
-  print("List: ")
-  print(*_listOfSequences, sep = ", ")
+  logger.info("List: %s", ", ".join(_listOfSequences))
   for sequence in _listOfSequences:
     try:
       files = os.listdir(os.path.join(path, sequence))
@@ -195,13 +205,11 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           f"Expected at least 2 streams in '{source}' but found {len(file.streams)} stream(s)"
         )
       bitrate = calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=file)
-      print()
-      print()
-      print()
-      print("Sequence: " + sequence)
+      logger.info("Sequence: %s", sequence)
 
       quoted_source = shlex.quote(source)
       quoted_destination = shlex.quote(destination)
+      safe_sequence = sanitize_for_log(sequence)
 
       concat_path = None
       try:
@@ -210,7 +218,12 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           # Follow ffmpeg concat demuxer file list format (file '/absolute/path').
           for filename in files:
             file_path = os.path.abspath(os.path.join(path, sequence, filename))
-            escaped_path = file_path.replace("\\", "\\\\").replace("'", "\\'")
+            escaped_path = (
+              file_path.replace("\\", "\\\\")
+              .replace("'", "\\'")
+              .replace("\n", "\\n")
+              .replace("\r", "\\r")
+            )
             concat_file.write(f"file '{escaped_path}'\n")
 
         quoted_concat = shlex.quote(concat_path)
@@ -229,12 +242,13 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
 
         if len(file.streams) >= 4:
           if file.streams[3].codec_name == 'bin_data':
+            # Extra streams beyond index 3 are ignored.
             ffmpeg_cmd = f"{ffmpeg_cmd} -map 0:3 {quoted_destination}"
-            bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{sequence}'")
-            bash_command(f"udtacopy {quoted_source} {quoted_destination}", f"copying telemetry for '{sequence}'")
+            bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{safe_sequence}'")
+            bash_command(f"udtacopy {quoted_source} {quoted_destination}", f"copying telemetry for '{safe_sequence}'")
             bash_command(
               f"exiftool -TagsFromFile {quoted_source} -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate {quoted_destination}",
-              f"copying metadata for '{sequence}'"
+              f"copying metadata for '{safe_sequence}'"
             )
           else:
             raise VideoConversionError(
@@ -242,22 +256,22 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
             )
         elif len(file.streams) == 3:
           raise VideoConversionError(
-            f"Unexpected stream count in '{source}': expected 2 streams (video+audio) or at least 4 streams (video+audio+extra+telemetry), but found {len(file.streams)} stream(s)"
+            f"Unsupported stream layout in '{source}': expected 2 streams (video+audio) or at least 4 streams (video+audio+extra+telemetry), but found {len(file.streams)} stream(s)"
           )
         else:
           ffmpeg_cmd = f"{ffmpeg_cmd} {quoted_destination}"
-          bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{sequence}'")
+          bash_command(ffmpeg_cmd, f"{'converting' if convert else 'concatenating'} sequence '{safe_sequence}'")
           bash_command(
             f"exiftool -TagsFromFile {quoted_source} -CreateDate -MediaCreateDate -MediaModifyDate -ModifyDate {quoted_destination}",
-            f"copying metadata for '{sequence}'"
+            f"copying metadata for '{safe_sequence}'"
           )
 
         try:
           shutil.copystat(source, destination)
         except OSError as exc:
-          msg = f"Failed to copy file metadata from '{source}' to '{destination}': {exc}"
-          logger.warning(msg)
-          raise VideoConversionError(msg) from exc
+          raise VideoConversionError(
+            f"Failed to copy file metadata from '{source}' to '{destination}': {exc}"
+          ) from exc
       finally:
         if concat_path:
           try:
@@ -291,6 +305,7 @@ def getOptions(codec, accelerator):
 if __name__ == '__main__':
 
   try:
+    configure_logging()
     args = arguments()
 
     # Validate that the videos path exists and is a directory
@@ -320,10 +335,13 @@ if __name__ == '__main__':
 
     convertVideos(args["videos"], options, args["bitratemodifier"], args["mbits_max"], args["ratio_max"], args["convert"], sequences)
   except VideoConversionError as exc:
-    logger.error("%s", exc)
+    logger.error("Conversion halted: %s", exc)
     sys.exit(1)
   except (OSError, PermissionError) as exc:
     logger.error("Filesystem error during processing: %s", exc)
+    sys.exit(1)
+  except KeyboardInterrupt:
+    logger.info("Operation cancelled by user (Ctrl+C).")
     sys.exit(1)
   except Exception as exc:
     logger.exception("Unexpected error: %s", exc)

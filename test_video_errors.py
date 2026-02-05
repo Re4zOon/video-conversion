@@ -63,10 +63,34 @@ def test_probe_video_handles_missing_file(monkeypatch):
         video.probeVideo("/tmp/missing.mp4")
 
 
+def test_probe_video_handles_empty_streams(monkeypatch):
+    monkeypatch.setattr(video, "FFProbe", lambda _source: DummyProbe([]))
+
+    with pytest.raises(video.VideoConversionError, match="No streams found"):
+        video.probeVideo("/tmp/empty.mp4")
+
+
 def test_calculate_bitrate_invalid_metadata():
     invalid_probe = DummyProbe([DummyStream(coded_height=None)])
 
     with pytest.raises(video.VideoConversionError, match="Missing stream metadata"):
+        video.calculateBitrate("/tmp/source.mp4", 0.12, 25, 0.7, probe=invalid_probe)
+
+
+@pytest.mark.parametrize(
+    "field,value,expected",
+    [
+        ("coded_height", "invalid", "Invalid coded_height"),
+        ("coded_width", "invalid", "Invalid coded_width"),
+        ("framerate", "invalid", "Invalid framerate"),
+        ("bit_rate", "invalid", "Invalid bit_rate"),
+    ],
+)
+def test_calculate_bitrate_invalid_types(field, value, expected):
+    kwargs = {field: value}
+    invalid_probe = DummyProbe([DummyStream(**kwargs)])
+
+    with pytest.raises(video.VideoConversionError, match=expected):
         video.calculateBitrate("/tmp/source.mp4", 0.12, 25, 0.7, probe=invalid_probe)
 
 
@@ -100,3 +124,46 @@ def test_convert_videos_rejects_single_stream(monkeypatch, tmp_path):
 
     with pytest.raises(video.VideoConversionError, match="Expected at least 2 streams"):
         video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0001"])
+
+
+def test_convert_videos_rejects_three_streams(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0002"
+    sequence_path.mkdir()
+    (sequence_path / "GH010002.MP4").write_text("video")
+
+    def fake_listdir(path):
+        if path == str(tmp_path):
+            return ["0002"]
+        if path == str(sequence_path):
+            return ["GH010002.MP4"]
+        return []
+
+    monkeypatch.setattr(video.os, "listdir", fake_listdir)
+    monkeypatch.setattr(video, "probeVideo", lambda _source: DummyProbe([DummyStream()] * 3))
+    monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
+
+    with pytest.raises(video.VideoConversionError, match="Unsupported stream layout"):
+        video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0002"])
+
+
+def test_convert_videos_rejects_missing_telemetry(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0003"
+    sequence_path.mkdir()
+    (sequence_path / "GH010003.MP4").write_text("video")
+
+    def fake_listdir(path):
+        if path == str(tmp_path):
+            return ["0003"]
+        if path == str(sequence_path):
+            return ["GH010003.MP4"]
+        return []
+
+    bad_telemetry_streams = [DummyStream()] * 4
+    bad_telemetry_streams[3] = DummyStream(codec_name="h264")
+
+    monkeypatch.setattr(video.os, "listdir", fake_listdir)
+    monkeypatch.setattr(video, "probeVideo", lambda _source: DummyProbe(bad_telemetry_streams))
+    monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
+
+    with pytest.raises(video.VideoConversionError, match="Expected bin_data stream"):
+        video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0003"])
