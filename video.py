@@ -108,6 +108,12 @@ def configure_signal_handlers():
   signal.signal(signal.SIGTERM, handle_shutdown_signal)
   atexit.register(cleanup_temporary_artifacts)
 
+def reset_signal_state():
+  global _SIGNAL_HANDLED, _CLEANUP_DONE
+  with _TEMP_LOCK:
+    _SIGNAL_HANDLED = False
+    _CLEANUP_DONE = False
+
 def escape_concat_path(path):
   """Escape file paths for use in ffmpeg concat files."""
   return (
@@ -293,13 +299,13 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
   except OSError as exc:
     raise VideoConversionError(f"Unable to list sequences in '{path}': {exc}") from exc
 
-  sanitized_sequences = [sanitize_for_log(sequence) for sequence in _listOfSequences]
-  logger.info("List: %s", ", ".join(sanitized_sequences))
+  sanitized_sequences = {sequence: sanitize_for_log(sequence) for sequence in _listOfSequences}
+  logger.info("List: %s", ", ".join(sanitized_sequences[sequence] for sequence in _listOfSequences))
   for sequence in _listOfSequences:
     try:
       partial_destination = None
       conversion_successful = False
-      sanitized_sequence = sanitize_for_log(sequence)
+      sanitized_sequence = sanitized_sequences.get(sequence, sanitize_for_log(sequence))
       files = os.listdir(os.path.join(path, sequence))
       files.sort()
       if not files:
@@ -430,9 +436,7 @@ if __name__ == '__main__':
 
   try:
     configure_logging()
-    with _TEMP_LOCK:
-      _SIGNAL_HANDLED = False
-      _CLEANUP_DONE = False
+    reset_signal_state()
     configure_signal_handlers()
     args = arguments()
 
