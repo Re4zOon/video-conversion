@@ -299,13 +299,12 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
   except OSError as exc:
     raise VideoConversionError(f"Unable to list sequences in '{path}': {exc}") from exc
 
-  sanitized_sequences = {sequence: sanitize_for_log(sequence) for sequence in _listOfSequences}
-  logger.info("List: %s", ", ".join(sanitized_sequences[sequence] for sequence in _listOfSequences))
-  for sequence in _listOfSequences:
+  sanitized_sequences = [sanitize_for_log(sequence) for sequence in _listOfSequences]
+  logger.info("List: %s", ", ".join(sanitized_sequences))
+  for sequence, sanitized_sequence in zip(_listOfSequences, sanitized_sequences):
     try:
       partial_destination = None
       conversion_successful = False
-      sanitized_sequence = sanitized_sequences.get(sequence, sanitize_for_log(sequence))
       files = os.listdir(os.path.join(path, sequence))
       files.sort()
       if not files:

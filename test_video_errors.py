@@ -213,8 +213,8 @@ def test_convert_videos_resume_allows_conversion(monkeypatch, tmp_path):
     replace_calls = []
     bash_calls = []
 
+    video.reset_signal_state()
     video._TRACKED_PARTIAL_OUTPUTS.clear()
-    video._CLEANUP_DONE = False
 
     monkeypatch.setattr(video.os, "listdir", fake_listdir)
     monkeypatch.setattr(video, "probeVideo", lambda _source: DummyProbe([DummyStream(), DummyStream()]))
@@ -236,9 +236,9 @@ def test_cleanup_temporary_artifacts_removes_files(tmp_path):
     partial_file = tmp_path / "output.mp4.partial"
     partial_file.write_text("temp")
 
+    video.reset_signal_state()
     video._TRACKED_TEMP_FILES.clear()
     video._TRACKED_PARTIAL_OUTPUTS.clear()
-    video._CLEANUP_DONE = False
     video.register_temp_file(str(temp_file))
     video.register_partial_output(str(partial_file))
 
@@ -256,8 +256,7 @@ def test_handle_shutdown_signal_sigint_triggers_cleanup(monkeypatch):
     def record_cleanup():
         calls.append(True)
 
-    video._SIGNAL_HANDLED = False
-    video._CLEANUP_DONE = False
+    video.reset_signal_state()
     monkeypatch.setattr(video, "cleanup_temporary_artifacts", record_cleanup)
 
     with pytest.raises(SystemExit) as excinfo:
@@ -274,8 +273,7 @@ def test_handle_shutdown_signal_sigterm_triggers_cleanup(monkeypatch):
     def record_cleanup():
         calls.append(True)
 
-    video._SIGNAL_HANDLED = False
-    video._CLEANUP_DONE = False
+    video.reset_signal_state()
     monkeypatch.setattr(video, "cleanup_temporary_artifacts", record_cleanup)
 
     with pytest.raises(SystemExit) as excinfo:
