@@ -168,6 +168,10 @@ sudo apt install intel-media-va-driver-non-free
 
 This error occurs when a video has additional streams that aren't recognized as GoPro telemetry. The tool expects stream index 3 to be `bin_data` for GoPro files with telemetry.
 
+### Metadata copy warnings
+
+If file metadata (timestamps/permissions) cannot be copied after conversion, the tool logs a warning but keeps the converted output file.
+
 ## License
 
 This project is open source. Feel free to modify and distribute.

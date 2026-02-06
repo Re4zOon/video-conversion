@@ -315,7 +315,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
         logger.info("Skipping sequence %s because output already exists (resume enabled).", sanitized_sequence)
         continue
       partial_destination = f"{destination}{PARTIAL_OUTPUT_SUFFIX}"
-      # Warn if a stale partial output cannot be removed before converting.
+      # Attempt to clean up stale partial output; log a warning on failure.
       cleanup_tracked_path(partial_destination, "stale partial output", raise_on_error=False)
       register_partial_output(partial_destination)
       file = probeVideo(source)
