@@ -213,6 +213,9 @@ def test_convert_videos_resume_allows_conversion(monkeypatch, tmp_path):
     replace_calls = []
     bash_calls = []
 
+    video._TRACKED_PARTIAL_OUTPUTS.clear()
+    video._CLEANUP_DONE = False
+
     monkeypatch.setattr(video.os, "listdir", fake_listdir)
     monkeypatch.setattr(video, "probeVideo", lambda _source: DummyProbe([DummyStream(), DummyStream()]))
     monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
@@ -224,6 +227,7 @@ def test_convert_videos_resume_allows_conversion(monkeypatch, tmp_path):
 
     assert bash_calls
     assert replace_calls
+    assert not video._TRACKED_PARTIAL_OUTPUTS
 
 
 def test_cleanup_temporary_artifacts_removes_files(tmp_path):
@@ -232,6 +236,9 @@ def test_cleanup_temporary_artifacts_removes_files(tmp_path):
     partial_file = tmp_path / "output.mp4.partial"
     partial_file.write_text("temp")
 
+    video._TRACKED_TEMP_FILES.clear()
+    video._TRACKED_PARTIAL_OUTPUTS.clear()
+    video._CLEANUP_DONE = False
     video.register_temp_file(str(temp_file))
     video.register_partial_output(str(partial_file))
 
@@ -239,3 +246,60 @@ def test_cleanup_temporary_artifacts_removes_files(tmp_path):
 
     assert not temp_file.exists()
     assert not partial_file.exists()
+    assert not video._TRACKED_TEMP_FILES
+    assert not video._TRACKED_PARTIAL_OUTPUTS
+
+
+def test_handle_shutdown_signal_sigint_triggers_cleanup(monkeypatch):
+    calls = []
+
+    def record_cleanup():
+        calls.append(True)
+
+    video._SIGNAL_HANDLED = False
+    video._CLEANUP_DONE = False
+    monkeypatch.setattr(video, "cleanup_temporary_artifacts", record_cleanup)
+
+    with pytest.raises(SystemExit) as excinfo:
+        video.handle_shutdown_signal(video.signal.SIGINT, None)
+
+    assert excinfo.value.code == video.EXIT_CODE_SIGINT
+    assert calls
+    assert video._SIGNAL_HANDLED
+
+
+def test_handle_shutdown_signal_sigterm_triggers_cleanup(monkeypatch):
+    calls = []
+
+    def record_cleanup():
+        calls.append(True)
+
+    video._SIGNAL_HANDLED = False
+    video._CLEANUP_DONE = False
+    monkeypatch.setattr(video, "cleanup_temporary_artifacts", record_cleanup)
+
+    with pytest.raises(SystemExit) as excinfo:
+        video.handle_shutdown_signal(video.signal.SIGTERM, None)
+
+    assert excinfo.value.code == video.EXIT_CODE_SIGTERM
+    assert calls
+
+
+def test_configure_signal_handlers_registers(monkeypatch):
+    registered = []
+    atexit_calls = []
+
+    def record_signal(sig, handler):
+        registered.append((sig, handler))
+
+    def record_atexit(handler):
+        atexit_calls.append(handler)
+
+    monkeypatch.setattr(video.signal, "signal", record_signal)
+    monkeypatch.setattr(video.atexit, "register", record_atexit)
+
+    video.configure_signal_handlers()
+
+    assert (video.signal.SIGINT, video.handle_shutdown_signal) in registered
+    assert (video.signal.SIGTERM, video.handle_shutdown_signal) in registered
+    assert video.cleanup_temporary_artifacts in atexit_calls
