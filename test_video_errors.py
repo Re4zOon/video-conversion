@@ -281,6 +281,7 @@ def test_handle_shutdown_signal_sigterm_triggers_cleanup(monkeypatch):
 
     assert excinfo.value.code == video.EXIT_CODE_SIGTERM
     assert calls
+    assert video._SIGNAL_HANDLED
 
 
 def test_configure_signal_handlers_registers(monkeypatch):

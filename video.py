@@ -316,7 +316,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
         continue
       partial_destination = f"{destination}{PARTIAL_OUTPUT_SUFFIX}"
       # Warn if a stale partial output cannot be removed before converting.
-      cleanup_tracked_path(partial_destination, "stale partial output")
+      cleanup_tracked_path(partial_destination, "stale partial output", raise_on_error=False)
       register_partial_output(partial_destination)
       file = probeVideo(source)
       if len(file.streams) < 2:
