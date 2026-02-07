@@ -7,6 +7,7 @@ import video
 
 class DummyStream:
     """Lightweight stream mock with configurable metadata for tests."""
+
     def __init__(
         self,
         coded_height=1080,
@@ -24,6 +25,7 @@ class DummyStream:
 
 class DummyProbe:
     """Simple probe mock that exposes a streams list for tests."""
+
     def __init__(self, streams):
         self.streams = streams
 
@@ -159,10 +161,16 @@ def test_convert_videos_rejects_missing_telemetry(monkeypatch, tmp_path):
             return ["GH010003.MP4"]
         return []
 
-    streams_with_wrong_telemetry_codec = [DummyStream() for _ in range(3)] + [DummyStream(codec_name="h264")]
+    streams_with_wrong_telemetry_codec = [DummyStream() for _ in range(3)] + [
+        DummyStream(codec_name="h264")
+    ]
 
     monkeypatch.setattr(video.os, "listdir", fake_listdir)
-    monkeypatch.setattr(video, "probeVideo", lambda _source: DummyProbe(streams_with_wrong_telemetry_codec))
+    monkeypatch.setattr(
+        video,
+        "probeVideo",
+        lambda _source: DummyProbe(streams_with_wrong_telemetry_codec),
+    )
     monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
     monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: None)
 
@@ -192,7 +200,9 @@ def test_convert_videos_resume_skips_existing_output(monkeypatch, tmp_path):
     monkeypatch.setattr(video, "probeVideo", fail_probe)
     monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: calls.append(True))
 
-    video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, resume=True, sequences=["0004"])
+    video.convertVideos(
+        str(tmp_path), "-c copy", 0.12, 25, 0.7, True, resume=True, sequences=["0004"]
+    )
 
     assert not calls
 
@@ -217,13 +227,17 @@ def test_convert_videos_resume_allows_conversion(monkeypatch, tmp_path):
     video._TRACKED_PARTIAL_OUTPUTS.clear()
 
     monkeypatch.setattr(video.os, "listdir", fake_listdir)
-    monkeypatch.setattr(video, "probeVideo", lambda _source: DummyProbe([DummyStream(), DummyStream()]))
+    monkeypatch.setattr(
+        video, "probeVideo", lambda _source: DummyProbe([DummyStream(), DummyStream()])
+    )
     monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
     monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: bash_calls.append(True))
     monkeypatch.setattr(video.os, "replace", lambda *_args: replace_calls.append(True))
     monkeypatch.setattr(video.shutil, "copystat", lambda *_args, **_kwargs: None)
 
-    video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, resume=True, sequences=["0005"])
+    video.convertVideos(
+        str(tmp_path), "-c copy", 0.12, 25, 0.7, True, resume=True, sequences=["0005"]
+    )
 
     assert bash_calls
     assert replace_calls
