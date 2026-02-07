@@ -76,6 +76,7 @@ python video.py -v /path/to/videos [options]
 | `--mbits_max` | `-mx` | `25` | Maximum bitrate in Mbps |
 | `--ratio_max` | `-rx` | `0.70` | Maximum ratio of original bitrate |
 | `--bitratemodifier` | `-bm` | `0.12` | Bitrate calculation modifier |
+| `--resume` | `-R` | disabled | Skip sequences that already have output files |
 
 ### Examples
 
@@ -98,6 +99,11 @@ Set maximum bitrate to 15 Mbps:
 ```bash
 python video.py -v /path/to/videos -mx 15
 ```
+
+### Interruptions and Resume
+
+- Press `Ctrl+C` or send `SIGTERM` to stop conversion. Temporary concat files and partial outputs are cleaned up on interruption.
+- Use `--resume` to skip sequences that already have converted output files from a previous run. FFmpeg does not support mid-file resume, so interrupted conversions restart from the beginning.
 
 ## How It Works
 
@@ -161,6 +167,10 @@ sudo apt install intel-media-va-driver-non-free
 ### "More than 2 streams, but no bin_data"
 
 This error occurs when a video has additional streams that aren't recognized as GoPro telemetry. The tool expects stream index 3 to be `bin_data` for GoPro files with telemetry.
+
+### Metadata copy warnings
+
+If file metadata (timestamps/permissions) cannot be copied after conversion, the tool logs a warning but keeps the converted output file.
 
 ## License
 

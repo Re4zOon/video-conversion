@@ -6,11 +6,23 @@ import argparse
 import subprocess
 import logging
 import shlex
+import signal
+import atexit
+from threading import RLock
 from ffprobe import FFProbe
 import shutil
 import tempfile
 
 logger = logging.getLogger(__name__)
+
+_TRACKED_TEMP_FILES = set()
+_TRACKED_PARTIAL_OUTPUTS = set()
+_SIGNAL_HANDLED = False
+_CLEANUP_DONE = False
+_TEMP_LOCK = RLock()
+EXIT_CODE_SIGINT = 130  # Standard Unix exit code for SIGINT (128 + 2).
+EXIT_CODE_SIGTERM = 143  # Standard Unix exit code for SIGTERM (128 + 15).
+PARTIAL_OUTPUT_SUFFIX = ".partial"
 
 def configure_logging():
   """Configure logging based on the GOPRO_LOG_LEVEL environment variable."""
@@ -24,6 +36,83 @@ def configure_logging():
 def sanitize_for_log(value):
   """Return a sanitized string safe for logging with newlines and carriage returns escaped."""
   return str(value).replace("\n", "\\n").replace("\r", "\\r")
+
+def register_temp_file(path):
+  if path:
+    with _TEMP_LOCK:
+      _TRACKED_TEMP_FILES.add(path)
+
+def unregister_temp_file(path):
+  if path:
+    with _TEMP_LOCK:
+      _TRACKED_TEMP_FILES.discard(path)
+
+def register_partial_output(path):
+  if path:
+    with _TEMP_LOCK:
+      _TRACKED_PARTIAL_OUTPUTS.add(path)
+
+def unregister_partial_output(path):
+  if path:
+    with _TEMP_LOCK:
+      _TRACKED_PARTIAL_OUTPUTS.discard(path)
+
+def cleanup_temporary_artifacts():
+  global _CLEANUP_DONE
+  with _TEMP_LOCK:
+    if _CLEANUP_DONE:
+      return
+    _CLEANUP_DONE = True
+    temp_files = list(_TRACKED_TEMP_FILES)
+    partial_outputs = list(_TRACKED_PARTIAL_OUTPUTS)
+
+  for path in temp_files:
+    cleanup_tracked_path(path, "temporary file", unregister_temp_file)
+
+  for path in partial_outputs:
+    cleanup_tracked_path(path, "partial output", unregister_partial_output)
+
+def cleanup_tracked_path(path, label, unregister_callback=None, *, raise_on_error=False):
+  if not path:
+    return
+  try:
+    os.unlink(path)
+  except FileNotFoundError:
+    # The file is already gone; nothing left to clean up.
+    pass
+  except OSError as exc:
+    if raise_on_error:
+      raise VideoConversionError(f"Failed to clean up {label} '{path}': {exc}") from exc
+    logger.warning("Failed to clean up %s %s: %s", label, sanitize_for_log(path), exc)
+  finally:
+    if unregister_callback:
+      unregister_callback(path)
+
+def handle_shutdown_signal(signum, _frame):
+  global _SIGNAL_HANDLED
+  with _TEMP_LOCK:
+    if _SIGNAL_HANDLED:
+      return
+    _SIGNAL_HANDLED = True
+  logger.info("Received signal %s. Cleaning up temporary files.", signum)
+  cleanup_temporary_artifacts()
+  if signum == signal.SIGINT:
+    raise SystemExit(EXIT_CODE_SIGINT)
+  if signum == signal.SIGTERM:
+    raise SystemExit(EXIT_CODE_SIGTERM)
+  # Fallback for any future signals registered here.
+  raise SystemExit(128 + signum)
+
+def configure_signal_handlers():
+  signal.signal(signal.SIGINT, handle_shutdown_signal)
+  signal.signal(signal.SIGTERM, handle_shutdown_signal)
+  atexit.register(cleanup_temporary_artifacts)
+
+def reset_signal_state():
+  global _SIGNAL_HANDLED, _CLEANUP_DONE
+  with _TEMP_LOCK:
+    _SIGNAL_HANDLED = False
+    _CLEANUP_DONE = False
 
 def escape_concat_path(path):
   """Escape file paths for use in ffmpeg concat files."""
@@ -66,6 +155,7 @@ def arguments():
   parser.add_argument("-mx", "--mbits_max", type=int, default=25, help="Max bitrate for conversion (default: 25)")
   parser.add_argument("-rx", "--ratio_max", type=float, default=0.70, help="Max ratio of bitrate for conversion (default: 0.70)")
   parser.add_argument("-bm", "--bitratemodifier", type=float, default=0.12, help="Bitrate modifier for conversion (default: 0.12)")
+  parser.add_argument("-R", "--resume", action="store_true", help="Skip sequences that already have output files")
   args = parser.parse_args()
   config = vars(args)
   return config
@@ -197,7 +287,7 @@ def videostofolders(contents, path):
 
   return listOfSequences
 
-def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert, sequences=None):
+def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert, resume=False, sequences=None):
 
   # Use provided sequences list or fall back to directory listing
   try:
@@ -209,26 +299,35 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
   except OSError as exc:
     raise VideoConversionError(f"Unable to list sequences in '{path}': {exc}") from exc
 
-  logger.info("List: %s", ", ".join(_listOfSequences))
-  for sequence in _listOfSequences:
+  sanitized_sequences = [sanitize_for_log(sequence) for sequence in _listOfSequences]
+  logger.info("List: %s", ", ".join(sanitized_sequences))
+  for sequence, sanitized_sequence in zip(_listOfSequences, sanitized_sequences):
     try:
+      partial_destination = None
+      conversion_successful = False
       files = os.listdir(os.path.join(path, sequence))
       files.sort()
       if not files:
         raise VideoConversionError(f"No video files found in sequence '{sequence}'")
       source = os.path.join(path, sequence, files[0])
       destination = os.path.join(path, files[0])
+      if resume and os.path.exists(destination):
+        logger.info("Skipping sequence %s because output already exists (resume enabled).", sanitized_sequence)
+        continue
+      partial_destination = f"{destination}{PARTIAL_OUTPUT_SUFFIX}"
+      # Attempt to clean up stale partial output; log a warning on failure.
+      cleanup_tracked_path(partial_destination, "stale partial output", raise_on_error=False)
+      register_partial_output(partial_destination)
       file = probeVideo(source)
       if len(file.streams) < 2:
         raise VideoConversionError(
           f"Expected at least 2 streams in '{source}' but found {len(file.streams)} stream(s)"
         )
       bitrate = calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=file)
-      logger.info("Sequence: %s", sequence)
+      logger.info("Sequence: %s", sanitized_sequence)
 
       quoted_source = shlex.quote(source)
-      quoted_destination = shlex.quote(destination)
-      sanitized_sequence = sanitize_for_log(sequence)
+      quoted_destination = shlex.quote(partial_destination)
       sanitized_source = sanitize_for_log(source)
       sanitized_destination = sanitize_for_log(destination)
 
@@ -236,6 +335,7 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
       try:
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as concat_file:
           concat_path = concat_file.name
+          register_temp_file(concat_path)
           # Follow ffmpeg concat demuxer file list format (file '/absolute/path').
           for filename in files:
             file_path = os.path.abspath(os.path.join(path, sequence, filename))
@@ -283,17 +383,30 @@ def convertVideos(path, options, bitratemodifier, mbits_max, ratio_max, convert,
           )
 
         try:
-          shutil.copystat(source, destination)
+          # Atomic when source/destination are on the same filesystem; ensures completed outputs replace the final file.
+          os.replace(partial_destination, destination)
+          unregister_partial_output(partial_destination)
+          conversion_successful = True
         except OSError as exc:
           raise VideoConversionError(
-            f"Failed to copy file metadata from '{sanitized_source}' to '{sanitized_destination}': {exc}"
+            f"Failed to finalize output file for '{sanitized_sequence}': {exc}"
           ) from exc
+
+        try:
+          shutil.copystat(source, destination)
+        except OSError as exc:
+          logger.warning(
+            "Failed to copy file metadata from '%s' to '%s': %s",
+            sanitized_source,
+            sanitized_destination,
+            exc,
+          )
       finally:
         if concat_path:
-          try:
-            os.unlink(concat_path)
-          except OSError as exc:
-            logger.warning("Failed to clean up temporary concat file %s: %s", concat_path, exc)
+          cleanup_tracked_path(concat_path, "temporary concat file", unregister_temp_file)
+        # Skip partial cleanup when the output is finalized or resume has skipped the sequence.
+        if partial_destination and not conversion_successful:
+          cleanup_tracked_path(partial_destination, "partial output", unregister_partial_output)
     except VideoConversionError:
       raise
     except (OSError, IndexError, AttributeError, subprocess.SubprocessError) as exc:
@@ -322,6 +435,8 @@ if __name__ == '__main__':
 
   try:
     configure_logging()
+    reset_signal_state()
+    configure_signal_handlers()
     args = arguments()
 
     # Validate that the videos path exists and is a directory
@@ -349,7 +464,16 @@ if __name__ == '__main__':
 
     options = getOptions(args["codec"], args["accelerator"])
 
-    convertVideos(args["videos"], options, args["bitratemodifier"], args["mbits_max"], args["ratio_max"], args["convert"], sequences)
+    convertVideos(
+      args["videos"],
+      options,
+      args["bitratemodifier"],
+      args["mbits_max"],
+      args["ratio_max"],
+      args["convert"],
+      resume=args["resume"],
+      sequences=sequences,
+    )
   except VideoConversionError as exc:
     logger.error("Conversion halted: %s", exc)
     sys.exit(1)

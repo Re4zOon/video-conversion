@@ -168,3 +168,137 @@ def test_convert_videos_rejects_missing_telemetry(monkeypatch, tmp_path):
 
     with pytest.raises(video.VideoConversionError, match="Expected bin_data stream"):
         video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0003"])
+
+
+def test_convert_videos_resume_skips_existing_output(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0004"
+    sequence_path.mkdir()
+    (sequence_path / "GH010004.MP4").write_text("video")
+    (tmp_path / "GH010004.MP4").write_text("existing")
+
+    def fake_listdir(path):
+        if path == str(tmp_path):
+            return ["0004"]
+        if path == str(sequence_path):
+            return ["GH010004.MP4"]
+        return []
+
+    def fail_probe(_source):
+        raise AssertionError("probe should not be called")
+
+    calls = []
+
+    monkeypatch.setattr(video.os, "listdir", fake_listdir)
+    monkeypatch.setattr(video, "probeVideo", fail_probe)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: calls.append(True))
+
+    video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, resume=True, sequences=["0004"])
+
+    assert not calls
+
+
+def test_convert_videos_resume_allows_conversion(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0005"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010005.MP4"
+    source_path.write_text("video")
+
+    def fake_listdir(path):
+        if path == str(tmp_path):
+            return ["0005"]
+        if path == str(sequence_path):
+            return ["GH010005.MP4"]
+        return []
+
+    replace_calls = []
+    bash_calls = []
+
+    video.reset_signal_state()
+    video._TRACKED_PARTIAL_OUTPUTS.clear()
+
+    monkeypatch.setattr(video.os, "listdir", fake_listdir)
+    monkeypatch.setattr(video, "probeVideo", lambda _source: DummyProbe([DummyStream(), DummyStream()]))
+    monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: bash_calls.append(True))
+    monkeypatch.setattr(video.os, "replace", lambda *_args: replace_calls.append(True))
+    monkeypatch.setattr(video.shutil, "copystat", lambda *_args, **_kwargs: None)
+
+    video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, resume=True, sequences=["0005"])
+
+    assert bash_calls
+    assert replace_calls
+    assert not video._TRACKED_PARTIAL_OUTPUTS
+
+
+def test_cleanup_temporary_artifacts_removes_files(tmp_path):
+    temp_file = tmp_path / "concat.txt"
+    temp_file.write_text("temp")
+    partial_file = tmp_path / "output.mp4.partial"
+    partial_file.write_text("temp")
+
+    video.reset_signal_state()
+    video._TRACKED_TEMP_FILES.clear()
+    video._TRACKED_PARTIAL_OUTPUTS.clear()
+    video.register_temp_file(str(temp_file))
+    video.register_partial_output(str(partial_file))
+
+    video.cleanup_temporary_artifacts()
+
+    assert not temp_file.exists()
+    assert not partial_file.exists()
+    assert not video._TRACKED_TEMP_FILES
+    assert not video._TRACKED_PARTIAL_OUTPUTS
+
+
+def test_handle_shutdown_signal_sigint_triggers_cleanup(monkeypatch):
+    calls = []
+
+    def record_cleanup():
+        calls.append(True)
+
+    video.reset_signal_state()
+    monkeypatch.setattr(video, "cleanup_temporary_artifacts", record_cleanup)
+
+    with pytest.raises(SystemExit) as excinfo:
+        video.handle_shutdown_signal(video.signal.SIGINT, None)
+
+    assert excinfo.value.code == video.EXIT_CODE_SIGINT
+    assert calls
+    assert video._SIGNAL_HANDLED
+
+
+def test_handle_shutdown_signal_sigterm_triggers_cleanup(monkeypatch):
+    calls = []
+
+    def record_cleanup():
+        calls.append(True)
+
+    video.reset_signal_state()
+    monkeypatch.setattr(video, "cleanup_temporary_artifacts", record_cleanup)
+
+    with pytest.raises(SystemExit) as excinfo:
+        video.handle_shutdown_signal(video.signal.SIGTERM, None)
+
+    assert excinfo.value.code == video.EXIT_CODE_SIGTERM
+    assert calls
+    assert video._SIGNAL_HANDLED
+
+
+def test_configure_signal_handlers_registers(monkeypatch):
+    registered = []
+    atexit_calls = []
+
+    def record_signal(sig, handler):
+        registered.append((sig, handler))
+
+    def record_atexit(handler):
+        atexit_calls.append(handler)
+
+    monkeypatch.setattr(video.signal, "signal", record_signal)
+    monkeypatch.setattr(video.atexit, "register", record_atexit)
+
+    video.configure_signal_handlers()
+
+    assert (video.signal.SIGINT, video.handle_shutdown_signal) in registered
+    assert (video.signal.SIGTERM, video.handle_shutdown_signal) in registered
+    assert video.cleanup_temporary_artifacts in atexit_calls
