@@ -41,6 +41,45 @@ def sanitize_for_log(value):
     return str(value).replace("\n", "\\n").replace("\r", "\\r")
 
 
+def resolve_output_destination(destination):
+    """Resolve conflicts for output files, returning the chosen destination or None to cancel."""
+    while os.path.exists(destination):
+        prompt = (
+            f"Output file '{destination}' already exists. "
+            "Choose [o]verwrite, [r]ename, or [c]ancel: "
+        )
+        try:
+            choice = input(prompt).strip().lower()
+        except EOFError:
+            logger.info(
+                "No input available to resolve output conflict for '%s'.",
+                sanitize_for_log(destination),
+            )
+            return None
+        if choice in {"o", "overwrite"}:
+            return destination
+        if choice in {"r", "rename"}:
+            try:
+                new_name = input("Enter a new output filename (leave blank to cancel): ").strip()
+            except EOFError:
+                logger.info(
+                    "No input available to rename output for '%s'.",
+                    sanitize_for_log(destination),
+                )
+                return None
+            if not new_name:
+                return None
+            if os.path.isabs(new_name):
+                destination = new_name
+            else:
+                destination = os.path.join(os.path.dirname(destination), new_name)
+            continue
+        if choice in {"c", "cancel"}:
+            return None
+        print("Invalid choice. Please enter 'o', 'r', or 'c'.")
+    return destination
+
+
 def register_temp_file(path):
     if path:
         with _TEMP_LOCK:
@@ -170,7 +209,7 @@ class VideoConversionError(Exception):
 def arguments():
 
     parser = argparse.ArgumentParser(
-        description="GoPro video compressor",
+        description="GoPro video compressor (prompts before overwriting output files)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("-v", "--videos", required=True, help="Path to the videos folder")
@@ -216,7 +255,7 @@ def arguments():
         "-R",
         "--resume",
         action="store_true",
-        help="Skip sequences that already have output files",
+        help="Skip sequences that already have output files (no overwrite prompt)",
     )
     args = parser.parse_args()
     config = vars(args)
@@ -420,6 +459,15 @@ def convertVideos(
                     sanitized_sequence,
                 )
                 continue
+            if not resume:
+                resolved_destination = resolve_output_destination(destination)
+                if resolved_destination is None:
+                    logger.info(
+                        "Conversion cancelled by user before processing sequence %s.",
+                        sanitized_sequence,
+                    )
+                    return
+                destination = resolved_destination
             partial_destination = f"{destination}{PARTIAL_OUTPUT_SUFFIX}"
             # Attempt to clean up stale partial output; log a warning on failure.
             cleanup_tracked_path(partial_destination, "stale partial output", raise_on_error=False)
