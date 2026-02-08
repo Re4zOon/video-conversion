@@ -57,6 +57,21 @@ def resolve_output_destination(destination):
             )
             return None
         if choice in {"o", "overwrite"}:
+            # Only allow overwrite for regular files; disallow directories and other non-file paths.
+            if os.path.isdir(destination):
+                logger.error(
+                    "Cannot overwrite existing directory '%s'. Please choose rename or cancel.",
+                    sanitize_for_log(destination),
+                )
+                print("Cannot overwrite a directory. Please choose rename or cancel.")
+                continue
+            if os.path.exists(destination) and not os.path.isfile(destination):
+                logger.error(
+                    "Cannot overwrite non-regular file '%s'. Please choose rename or cancel.",
+                    sanitize_for_log(destination),
+                )
+                print("Cannot overwrite this type of path. Please choose rename or cancel.")
+                continue
             return destination
         if choice in {"r", "rename"}:
             try:
