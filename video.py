@@ -60,19 +60,21 @@ def resolve_output_destination(destination):
             return destination
         if choice in {"r", "rename"}:
             try:
-                new_name = input("Enter a new output filename (leave blank to cancel): ").strip()
+                new_destination = input(
+                    "Enter a new output filename (leave blank to cancel): "
+                ).strip()
             except EOFError:
                 logger.info(
                     "No input available to rename output for '%s'.",
                     sanitize_for_log(destination),
                 )
                 return None
-            if not new_name:
+            if not new_destination:
                 return None
-            if os.path.isabs(new_name):
-                destination = new_name
+            if os.path.isabs(new_destination):
+                destination = new_destination
             else:
-                destination = os.path.join(os.path.dirname(destination), new_name)
+                destination = os.path.join(os.path.dirname(destination), new_destination)
             continue
         if choice in {"c", "cancel"}:
             return None
