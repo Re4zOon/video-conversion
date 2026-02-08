@@ -578,11 +578,12 @@ if __name__ == "__main__":
 
         # Validate that the videos path exists and is a directory
         videos_path = args["videos"]
+        sanitized_path = sanitize_for_log(videos_path)
         if not os.path.exists(videos_path):
-            logger.error("The specified path does not exist: %s", videos_path)
+            logger.error("The specified path does not exist: %s", sanitized_path)
             sys.exit(1)
         if not os.path.isdir(videos_path):
-            logger.error("The specified path is not a directory: %s", videos_path)
+            logger.error("The specified path is not a directory: %s", sanitized_path)
             sys.exit(1)
 
         try:
@@ -614,14 +615,14 @@ if __name__ == "__main__":
             sequences=sequences,
         )
     except VideoConversionError as exc:
-        logger.error("Conversion halted: %s", exc)
+        logger.error("Conversion halted: %s", sanitize_for_log(exc))
         sys.exit(1)
     except (OSError, PermissionError) as exc:
-        logger.error("Filesystem error during processing: %s", exc)
+        logger.error("Filesystem error during processing: %s", sanitize_for_log(exc))
         sys.exit(1)
     except KeyboardInterrupt:
         logger.info("Operation cancelled by user (Ctrl+C).")
         sys.exit(1)
     except Exception as exc:
-        logger.exception("Unexpected error: %s", exc)
+        logger.exception("Unexpected error: %s", sanitize_for_log(exc))
         sys.exit(1)
