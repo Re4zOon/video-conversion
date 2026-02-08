@@ -349,6 +349,29 @@ def test_convert_videos_prompt_eof_cancel(monkeypatch, tmp_path):
     assert not bash_calls
 
 
+def test_convert_videos_prompt_overwrite_directory(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0010"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010010.MP4"
+    source_path.write_text("video")
+    (tmp_path / "GH010010.MP4").mkdir()
+
+    responses = iter(["o", "c"])
+    bash_calls = []
+
+    def fail_probe(_source):
+        raise AssertionError("probe should not be called")
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
+    monkeypatch.setattr(video, "probeVideo", fail_probe)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: bash_calls.append(True))
+
+    with pytest.raises(video.VideoConversionCancelled, match="Conversion cancelled"):
+        video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0010"])
+
+    assert not bash_calls
+
+
 def test_cleanup_temporary_artifacts_removes_files(tmp_path):
     temp_file = tmp_path / "concat.txt"
     temp_file.write_text("temp")

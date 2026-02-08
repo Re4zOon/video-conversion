@@ -43,9 +43,10 @@ def sanitize_for_log(value):
 
 def resolve_output_destination(destination):
     """Resolve conflicts for output files, returning the chosen destination or None to cancel."""
-    while os.path.exists(destination):
+    while os.path.lexists(destination):
+        display_destination = sanitize_for_log(destination)
         prompt = (
-            f"Output file '{destination}' already exists. "
+            f"Output file '{display_destination}' already exists. "
             "Choose [o]verwrite, [r]ename, or [c]ancel: "
         )
         try:
@@ -65,7 +66,7 @@ def resolve_output_destination(destination):
                 )
                 print("Cannot overwrite a directory. Please choose rename or cancel.")
                 continue
-            if os.path.exists(destination) and not os.path.isfile(destination):
+            if os.path.lexists(destination) and not os.path.isfile(destination):
                 logger.error(
                     "Cannot overwrite non-regular file '%s'. Please choose rename or cancel.",
                     sanitize_for_log(destination),
@@ -474,7 +475,7 @@ def convertVideos(
                 raise VideoConversionError(f"No video files found in sequence '{sequence}'")
             source = os.path.join(path, sequence, files[0])
             destination = os.path.join(path, files[0])
-            if resume and os.path.exists(destination):
+            if resume and os.path.lexists(destination):
                 logger.info(
                     "Skipping sequence %s because output already exists (resume enabled).",
                     sanitized_sequence,
