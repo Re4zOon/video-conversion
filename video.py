@@ -92,7 +92,12 @@ def cleanup_tracked_path(path, label, unregister_callback=None, *, raise_on_erro
     except OSError as exc:
         if raise_on_error:
             raise VideoConversionError(f"Failed to clean up {label} '{path}': {exc}") from exc
-        logger.warning("Failed to clean up %s %s: %s", label, sanitize_for_log(path), exc)
+        logger.warning(
+            "Failed to clean up %s %s: %s",
+            label,
+            sanitize_for_log(path),
+            sanitize_for_log(exc),
+        )
     finally:
         if unregister_callback:
             unregister_callback(path)
@@ -328,7 +333,7 @@ def calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=None):
 def videostofolders(contents, path):
 
     # Checking if there is anything to move
-    if any(".MP4" in word for word in contents) or any(".mp4" in word for word in contents):
+    if any(word.lower().endswith(".mp4") for word in contents):
         logger.info("There is something to sort")
     else:
         logger.info("There is nothing to sort")
@@ -337,7 +342,7 @@ def videostofolders(contents, path):
     files = []
     # Selecting only files to be moved
     for content in contents:
-        if "MP4" in content or "mp4" in content:
+        if content.lower().endswith(".mp4"):
             files.append(content)
 
     file_sequences = {file: get_file_sequence(file) for file in files}
@@ -524,7 +529,7 @@ def convertVideos(
                         "Failed to copy file metadata from '%s' to '%s': %s",
                         sanitized_source,
                         sanitized_destination,
-                        exc,
+                        sanitize_for_log(exc),
                     )
             finally:
                 if concat_path:
