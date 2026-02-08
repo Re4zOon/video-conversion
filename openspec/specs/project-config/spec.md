@@ -20,5 +20,5 @@ The `pyproject.toml` SHALL contain configuration sections for Ruff (`[tool.ruff]
 The `pyproject.toml` SHALL declare runtime dependencies (mirroring `requirements.txt`) and optional dev dependencies including ruff, pytest, and pre-commit.
 
 #### Scenario: Dev dependencies installable
-- **WHEN** a developer runs `pip install -e ".[dev]"`
+- **WHEN** a developer runs `pip install -r requirements-dev.txt`
 - **THEN** ruff, pytest, and pre-commit SHALL be installed

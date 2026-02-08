@@ -566,6 +566,10 @@ def getOptions(codec, accelerator):
 
 
 if __name__ == "__main__":
+    if sys.version_info < (3, 10):  # noqa: UP036 — runtime guard for direct script execution
+        print("Error: Python 3.10 or later is required.", file=sys.stderr)
+        sys.exit(1)
+
     try:
         configure_logging()
         reset_signal_state()
