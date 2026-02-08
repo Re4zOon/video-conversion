@@ -13,7 +13,7 @@ The repository has no linting, formatting, or static analysis tooling configured
 
 ### New Capabilities
 - `linting`: Ruff-based linting and formatting configuration for consistent Python code style and error detection.
-- `ci-pipeline`: GitHub Actions workflow that runs linting, type checking, and tests automatically.
+- `ci-pipeline`: GitHub Actions workflow that runs linting and tests automatically.
 - `project-config`: Centralized project configuration via `pyproject.toml` for metadata, dependencies, and tool settings.
 
 ### Modified Capabilities
