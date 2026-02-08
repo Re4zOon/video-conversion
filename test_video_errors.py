@@ -318,7 +318,33 @@ def test_convert_videos_prompt_cancel(monkeypatch, tmp_path):
     monkeypatch.setattr(video, "probeVideo", fail_probe)
     monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: bash_calls.append(True))
 
-    video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0008"])
+    with pytest.raises(video.VideoConversionCancelled, match="Conversion cancelled"):
+        video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0008"])
+
+    assert not bash_calls
+
+
+def test_convert_videos_prompt_eof_cancel(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0009"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010009.MP4"
+    source_path.write_text("video")
+    (tmp_path / "GH010009.MP4").write_text("existing")
+
+    bash_calls = []
+
+    def fail_probe(_source):
+        raise AssertionError("probe should not be called")
+
+    def raise_eof(_prompt):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", raise_eof)
+    monkeypatch.setattr(video, "probeVideo", fail_probe)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: bash_calls.append(True))
+
+    with pytest.raises(video.VideoConversionCancelled, match="Conversion cancelled"):
+        video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0009"])
 
     assert not bash_calls
 

@@ -223,6 +223,10 @@ class VideoConversionError(Exception):
     """Raised when video processing operations fail (probe, organize, convert), chaining errors."""
 
 
+class VideoConversionCancelled(Exception):
+    """Raised when the user cancels conversion before processing starts."""
+
+
 def arguments():
 
     parser = argparse.ArgumentParser(
@@ -479,11 +483,10 @@ def convertVideos(
             if not resume:
                 resolved_destination = resolve_output_destination(destination)
                 if resolved_destination is None:
-                    logger.info(
-                        "Conversion cancelled by user before processing sequence %s.",
-                        sanitized_sequence,
+                    raise VideoConversionCancelled(
+                        "Conversion cancelled by user before processing sequence "
+                        f"'{sanitized_sequence}'."
                     )
-                    return
                 destination = resolved_destination
             partial_destination = f"{destination}{PARTIAL_OUTPUT_SUFFIX}"
             # Attempt to clean up stale partial output; log a warning on failure.
@@ -693,6 +696,9 @@ if __name__ == "__main__":
             resume=args["resume"],
             sequences=sequences,
         )
+    except VideoConversionCancelled as exc:
+        logger.info("Conversion cancelled by user: %s", sanitize_for_log(exc))
+        sys.exit(1)
     except VideoConversionError as exc:
         logger.error("Conversion halted: %s", sanitize_for_log(exc))
         sys.exit(1)
