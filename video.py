@@ -365,7 +365,16 @@ def videostofolders(contents, path):
                 file_sequence = file_sequences[file]
 
                 if file_sequence == sequence:
-                    os.rename(os.path.join(path, file), os.path.join(path, sequence, file))
+                    src_path = os.path.join(path, file)
+                    dst_path = os.path.join(path, sequence, file)
+                    if os.path.exists(dst_path):
+                        logger.warning(
+                            "Skipping moving '%s' to '%s' because destination already exists",
+                            src_path,
+                            dst_path,
+                        )
+                        continue
+                    os.rename(src_path, dst_path)
     except OSError as exc:
         raise VideoConversionError(f"Failed to organize videos in '{path}': {exc}") from exc
 
