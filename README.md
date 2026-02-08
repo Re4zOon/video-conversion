@@ -104,6 +104,7 @@ python video.py -v /path/to/videos -mx 15
 
 - Press `Ctrl+C` or send `SIGTERM` to stop conversion. Temporary concat files and partial outputs are cleaned up on interruption.
 - Use `--resume` to skip sequences that already have converted output files from a previous run. FFmpeg does not support mid-file resume, so interrupted conversions restart from the beginning.
+- If an output file already exists, the tool prompts to overwrite, rename, or cancel (unless `--resume` is used).
 
 ## How It Works
 
