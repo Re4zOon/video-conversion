@@ -309,7 +309,7 @@ def test_convert_videos_prompt_rename_rejects_paths(monkeypatch, tmp_path):
     source_path.write_text("video")
     (tmp_path / "GH010007B.MP4").write_text("existing")
 
-    responses = iter(["r", "../bad.mp4", "r", "renamed.mp4"])
+    responses = iter(["r", "..", "r", "../bad.mp4", "r", "renamed.mp4"])
     replace_calls = []
 
     video.reset_signal_state()
