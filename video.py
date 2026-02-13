@@ -47,9 +47,24 @@ def sanitize_for_display(value):
     return str(value).encode("unicode_escape").decode("ascii")
 
 
+def is_valid_filename(name):
+    """Return True if the provided name is a safe filename without path components."""
+    if name in {".", ".."}:
+        return False
+    if os.path.isabs(name):
+        return False
+    if os.path.sep in name:
+        return False
+    if os.path.altsep is not None and os.path.altsep in name:
+        return False
+    return True
+
+
 def resolve_output_destination(destination):
     """Resolve conflicts for output files, returning the chosen destination or None to cancel."""
-    while os.path.lexists(destination):
+    while True:
+        if not os.path.lexists(destination):
+            return destination
         display_destination = sanitize_for_display(destination)
         prompt = (
             f"Output file '{display_destination}' already exists. "
@@ -72,10 +87,7 @@ def resolve_output_destination(destination):
                 )
                 print("Cannot overwrite a symlink. Please choose rename or cancel.")
                 continue
-            try:
-                path_stat = os.lstat(destination)
-            except FileNotFoundError:
-                return destination
+            path_stat = os.lstat(destination)
             if stat.S_ISDIR(path_stat.st_mode):
                 logger.error(
                     "Cannot overwrite existing directory '%s'. Please choose rename or cancel.",
@@ -104,12 +116,7 @@ def resolve_output_destination(destination):
                 return None
             if not new_destination:
                 return None
-            if (
-                new_destination in {".", ".."}
-                or os.path.isabs(new_destination)
-                or os.path.sep in new_destination
-                or (os.path.altsep is not None and os.path.altsep in new_destination)
-            ):
+            if not is_valid_filename(new_destination):
                 print(
                     "Invalid filename. Please enter a name without any directory path components."
                 )
