@@ -16,7 +16,7 @@ We need a pre-conversion check in the CLI flow to prevent data loss by prompting
 
 ## Decisions
 
-- Add a preflight check in the CLI conversion command that uses `Path.exists()` on the resolved output path before invoking ffmpeg.
+- Add a preflight check in the CLI conversion command that uses `os.path.lexists()` on the resolved output path before invoking ffmpeg, so broken symlinks are also treated as conflicts.
   - **Alternative:** Rely on ffmpeg overwrite flags. Rejected because it does not provide rename/cancel choices.
 - Reuse existing prompt/input utilities (if present) to ask for overwrite, rename, or cancel, keeping the prompt synchronous.
   - **Alternative:** Introduce a new dependency for richer prompts. Rejected to keep changes minimal.

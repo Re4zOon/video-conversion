@@ -49,6 +49,8 @@ def sanitize_for_display(value):
 
 def is_valid_filename(name):
     """Return True if the provided name is a safe filename without path components."""
+    if "\x00" in name:
+        return False
     if name in {".", ".."}:
         return False
     if os.path.isabs(name):
@@ -63,7 +65,15 @@ def is_valid_filename(name):
 def resolve_output_destination(destination):
     """Resolve conflicts for output files, returning the chosen destination or None to cancel."""
     while True:
-        if not os.path.lexists(destination):
+        try:
+            path_exists = os.path.lexists(destination)
+        except ValueError:
+            logger.error(
+                "Invalid output destination path (possible embedded NUL): %s",
+                sanitize_for_log(destination),
+            )
+            return None
+        if not path_exists:
             return destination
         display_destination = sanitize_for_display(destination)
         prompt = (
@@ -80,7 +90,33 @@ def resolve_output_destination(destination):
             return None
         if choice in {"o", "overwrite"}:
             # Only allow overwrite for regular files; disallow directories and other non-file paths.
-            path_stat = os.lstat(destination)
+            try:
+                path_stat = os.lstat(destination)
+            except FileNotFoundError:
+                logger.info(
+                    "Destination '%s' disappeared before overwrite; proceeding.",
+                    sanitize_for_log(destination),
+                )
+                return destination
+            except PermissionError as exc:
+                logger.error(
+                    "Permission denied accessing existing path '%s': %s",
+                    sanitize_for_log(destination),
+                    sanitize_for_log(exc),
+                )
+                print(
+                    "Cannot access the existing path due to permissions. "
+                    "Please choose rename or cancel."
+                )
+                continue
+            except OSError as exc:
+                logger.error(
+                    "Error accessing existing path '%s': %s",
+                    sanitize_for_log(destination),
+                    sanitize_for_log(exc),
+                )
+                print("Error accessing the existing path. Please choose rename or cancel.")
+                continue
             if stat.S_ISLNK(path_stat.st_mode):
                 logger.error(
                     "Cannot overwrite symlink '%s'. Please choose rename or cancel.",
@@ -131,7 +167,6 @@ def resolve_output_destination(destination):
         if choice in {"c", "cancel"}:
             return None
         print("Invalid choice. Please enter 'o', 'r', or 'c'.")
-    return destination
 
 
 def register_temp_file(path):

@@ -331,6 +331,35 @@ def test_convert_videos_prompt_rename_rejects_paths(monkeypatch, tmp_path):
     assert replace_calls[0][1] == str(tmp_path / "renamed.mp4")
 
 
+def test_convert_videos_prompt_rename_eof_cancel(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0007c"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010007C.MP4"
+    source_path.write_text("video")
+    (tmp_path / "GH010007C.MP4").write_text("existing")
+
+    responses = iter(["r"])
+    bash_calls = []
+
+    def prompt_input(_prompt):
+        try:
+            return next(responses)
+        except StopIteration:
+            raise EOFError from None
+
+    def fail_probe(_source):
+        raise AssertionError("probe should not be called")
+
+    monkeypatch.setattr("builtins.input", prompt_input)
+    monkeypatch.setattr(video, "probeVideo", fail_probe)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: bash_calls.append(True))
+
+    with pytest.raises(video.VideoConversionCancelled, match="Conversion cancelled"):
+        video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0007c"])
+
+    assert not bash_calls
+
+
 def test_convert_videos_prompt_cancel(monkeypatch, tmp_path):
     sequence_path = tmp_path / "0008"
     sequence_path.mkdir()
