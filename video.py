@@ -7,6 +7,7 @@ import os
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -39,6 +40,133 @@ def configure_logging():
 def sanitize_for_log(value):
     """Return a sanitized string safe for logging with newlines and carriage returns escaped."""
     return str(value).replace("\n", "\\n").replace("\r", "\\r")
+
+
+def sanitize_for_display(value):
+    """Return a display-safe string with non-printable characters escaped."""
+    return str(value).encode("unicode_escape").decode("ascii")
+
+
+def is_valid_filename(name):
+    """Return True if the provided name is a safe filename without path components."""
+    if "\x00" in name:
+        return False
+    if name in {".", ".."}:
+        return False
+    if os.path.isabs(name):
+        return False
+    if os.path.sep in name:
+        return False
+    if os.path.altsep is not None and os.path.altsep in name:
+        return False
+    return True
+
+
+def resolve_output_destination(destination):
+    """Resolve conflicts for output files, returning the chosen destination or None to cancel."""
+    while True:
+        try:
+            path_exists = os.path.lexists(destination)
+        except ValueError:
+            logger.error(
+                "Invalid output destination path (possible embedded NUL): %s",
+                sanitize_for_log(destination),
+            )
+            return None
+        if not path_exists:
+            return destination
+        display_destination = sanitize_for_display(destination)
+        prompt = (
+            f"Output file '{display_destination}' already exists. "
+            "Choose [o]verwrite, [r]ename, or [c]ancel: "
+        )
+        try:
+            choice = input(prompt).strip().lower()
+        except EOFError:
+            logger.info(
+                "No input available to resolve output conflict for '%s'.",
+                sanitize_for_log(destination),
+            )
+            return None
+        if choice in {"o", "overwrite"}:
+            # Only allow overwrite for regular files; disallow directories and other non-file paths.
+            try:
+                path_stat = os.lstat(destination)
+            except FileNotFoundError:
+                logger.info(
+                    "Destination '%s' disappeared before overwrite; proceeding.",
+                    sanitize_for_log(destination),
+                )
+                return destination
+            except PermissionError as exc:
+                logger.error(
+                    "Permission denied accessing existing path '%s': %s",
+                    sanitize_for_log(destination),
+                    sanitize_for_log(exc),
+                )
+                print(
+                    "Cannot access the existing path due to permissions. "
+                    "Please choose rename or cancel."
+                )
+                continue
+            except OSError as exc:
+                logger.error(
+                    "Error accessing existing path '%s': %s",
+                    sanitize_for_log(destination),
+                    sanitize_for_log(exc),
+                )
+                print("Error accessing the existing path. Please choose rename or cancel.")
+                continue
+            if stat.S_ISLNK(path_stat.st_mode):
+                logger.error(
+                    "Cannot overwrite symlink '%s'. Please choose rename or cancel.",
+                    sanitize_for_log(destination),
+                )
+                print("Cannot overwrite a symlink. Please choose rename or cancel.")
+                continue
+            if stat.S_ISDIR(path_stat.st_mode):
+                logger.error(
+                    "Cannot overwrite existing directory '%s'. Please choose rename or cancel.",
+                    sanitize_for_log(destination),
+                )
+                print("Cannot overwrite a directory. Please choose rename or cancel.")
+                continue
+            if not stat.S_ISREG(path_stat.st_mode):
+                logger.error(
+                    "Cannot overwrite non-regular file '%s'. Please choose rename or cancel.",
+                    sanitize_for_log(destination),
+                )
+                print("Cannot overwrite this type of path. Please choose rename or cancel.")
+                continue
+            return destination
+        if choice in {"r", "rename"}:
+            try:
+                new_destination = input(
+                    "Enter a new output filename (leave blank to cancel): "
+                ).strip()
+            except EOFError:
+                logger.info(
+                    "No input available to rename output for '%s'.",
+                    sanitize_for_log(destination),
+                )
+                return None
+            if not new_destination:
+                return None
+            if not is_valid_filename(new_destination):
+                print(
+                    "Invalid filename. Please enter a name without any directory path components."
+                )
+                logger.warning(
+                    "Rejected invalid rename target '%s' for destination '%s'.",
+                    sanitize_for_log(new_destination),
+                    sanitize_for_log(destination),
+                )
+                continue
+            destination = os.path.join(os.path.dirname(destination), new_destination)
+            continue
+        if choice in {"c", "cancel"}:
+            return None
+        print("Invalid choice. Please enter 'o', 'r', or 'c'.")
 
 
 def register_temp_file(path):
@@ -167,10 +295,14 @@ class VideoConversionError(Exception):
     """Raised when video processing operations fail (probe, organize, convert), chaining errors."""
 
 
+class VideoConversionCancelled(Exception):
+    """Raised when the user cancels conversion before processing starts."""
+
+
 def arguments():
 
     parser = argparse.ArgumentParser(
-        description="GoPro video compressor",
+        description="GoPro video compressor (prompts before overwriting output files)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("-v", "--videos", required=True, help="Path to the videos folder")
@@ -216,7 +348,7 @@ def arguments():
         "-R",
         "--resume",
         action="store_true",
-        help="Skip sequences that already have output files",
+        help="Skip sequences that already have output files (no overwrite prompt)",
     )
     args = parser.parse_args()
     config = vars(args)
@@ -414,12 +546,20 @@ def convertVideos(
                 raise VideoConversionError(f"No video files found in sequence '{sequence}'")
             source = os.path.join(path, sequence, files[0])
             destination = os.path.join(path, files[0])
-            if resume and os.path.exists(destination):
+            if resume and os.path.lexists(destination):
                 logger.info(
                     "Skipping sequence %s because output already exists (resume enabled).",
                     sanitized_sequence,
                 )
                 continue
+            if not resume:
+                resolved_destination = resolve_output_destination(destination)
+                if resolved_destination is None:
+                    raise VideoConversionCancelled(
+                        "Conversion cancelled by user before processing sequence "
+                        f"'{sanitized_sequence}'."
+                    )
+                destination = resolved_destination
             partial_destination = f"{destination}{PARTIAL_OUTPUT_SUFFIX}"
             # Attempt to clean up stale partial output; log a warning on failure.
             cleanup_tracked_path(partial_destination, "stale partial output", raise_on_error=False)
@@ -628,6 +768,9 @@ if __name__ == "__main__":
             resume=args["resume"],
             sequences=sequences,
         )
+    except VideoConversionCancelled as exc:
+        logger.info("Conversion cancelled by user: %s", sanitize_for_log(exc))
+        sys.exit(1)
     except VideoConversionError as exc:
         logger.error("Conversion halted: %s", sanitize_for_log(exc))
         sys.exit(1)

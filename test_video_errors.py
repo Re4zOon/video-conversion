@@ -1,3 +1,4 @@
+import os
 import subprocess
 
 import pytest
@@ -242,6 +243,225 @@ def test_convert_videos_resume_allows_conversion(monkeypatch, tmp_path):
     assert bash_calls
     assert replace_calls
     assert not video._TRACKED_PARTIAL_OUTPUTS
+
+
+def test_convert_videos_prompt_overwrite(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0006"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010006.MP4"
+    source_path.write_text("video")
+    (tmp_path / "GH010006.MP4").write_text("existing")
+
+    responses = iter(["o"])
+    replace_calls = []
+    bash_calls = []
+
+    video.reset_signal_state()
+    video._TRACKED_PARTIAL_OUTPUTS.clear()
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
+    monkeypatch.setattr(
+        video, "probeVideo", lambda _source: DummyProbe([DummyStream(), DummyStream()])
+    )
+    monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: bash_calls.append(True))
+    monkeypatch.setattr(video.os, "replace", lambda *_args: replace_calls.append(_args))
+    monkeypatch.setattr(video.shutil, "copystat", lambda *_args, **_kwargs: None)
+
+    video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0006"])
+
+    assert bash_calls
+    assert replace_calls
+
+
+def test_convert_videos_prompt_rename(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0007"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010007.MP4"
+    source_path.write_text("video")
+    (tmp_path / "GH010007.MP4").write_text("existing")
+
+    responses = iter(["r", "renamed.mp4"])
+    replace_calls = []
+
+    video.reset_signal_state()
+    video._TRACKED_PARTIAL_OUTPUTS.clear()
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
+    monkeypatch.setattr(
+        video, "probeVideo", lambda _source: DummyProbe([DummyStream(), DummyStream()])
+    )
+    monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(video.os, "replace", lambda *_args: replace_calls.append(_args))
+    monkeypatch.setattr(video.shutil, "copystat", lambda *_args, **_kwargs: None)
+
+    video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0007"])
+
+    assert replace_calls
+    assert replace_calls[0][1] == str(tmp_path / "renamed.mp4")
+
+
+def test_convert_videos_prompt_rename_rejects_paths(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0007b"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010007B.MP4"
+    source_path.write_text("video")
+    (tmp_path / "GH010007B.MP4").write_text("existing")
+
+    # Rename flow: rejects '..' and '../bad.mp4', then accepts 'renamed.mp4'.
+    responses = iter(["r", "..", "r", "../bad.mp4", "r", "renamed.mp4"])
+    replace_calls = []
+
+    video.reset_signal_state()
+    video._TRACKED_PARTIAL_OUTPUTS.clear()
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
+    monkeypatch.setattr(
+        video, "probeVideo", lambda _source: DummyProbe([DummyStream(), DummyStream()])
+    )
+    monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(video.os, "replace", lambda *_args: replace_calls.append(_args))
+    monkeypatch.setattr(video.shutil, "copystat", lambda *_args, **_kwargs: None)
+
+    video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0007b"])
+
+    assert replace_calls
+    assert replace_calls[0][1] == str(tmp_path / "renamed.mp4")
+
+
+def test_convert_videos_prompt_rename_eof_cancel(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0007c"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010007C.MP4"
+    source_path.write_text("video")
+    (tmp_path / "GH010007C.MP4").write_text("existing")
+
+    responses = iter(["r"])
+    bash_calls = []
+
+    def prompt_input(_prompt):
+        try:
+            return next(responses)
+        except StopIteration:
+            raise EOFError from None
+
+    def fail_probe(_source):
+        raise AssertionError("probe should not be called")
+
+    monkeypatch.setattr("builtins.input", prompt_input)
+    monkeypatch.setattr(video, "probeVideo", fail_probe)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: bash_calls.append(True))
+
+    with pytest.raises(video.VideoConversionCancelled, match="Conversion cancelled"):
+        video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0007c"])
+
+    assert not bash_calls
+
+
+def test_convert_videos_prompt_cancel(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0008"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010008.MP4"
+    source_path.write_text("video")
+    (tmp_path / "GH010008.MP4").write_text("existing")
+
+    responses = iter(["c"])
+    bash_calls = []
+
+    def fail_probe(_source):
+        raise AssertionError("probe should not be called")
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
+    monkeypatch.setattr(video, "probeVideo", fail_probe)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: bash_calls.append(True))
+
+    with pytest.raises(video.VideoConversionCancelled, match="Conversion cancelled"):
+        video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0008"])
+
+    assert not bash_calls
+
+
+def test_convert_videos_prompt_eof_cancel(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0009"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010009.MP4"
+    source_path.write_text("video")
+    (tmp_path / "GH010009.MP4").write_text("existing")
+
+    bash_calls = []
+
+    def fail_probe(_source):
+        raise AssertionError("probe should not be called")
+
+    def raise_eof(_prompt):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", raise_eof)
+    monkeypatch.setattr(video, "probeVideo", fail_probe)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: bash_calls.append(True))
+
+    with pytest.raises(video.VideoConversionCancelled, match="Conversion cancelled"):
+        video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0009"])
+
+    assert not bash_calls
+
+
+def test_convert_videos_prompt_overwrite_symlink(monkeypatch, tmp_path):
+    if not hasattr(os, "symlink"):
+        pytest.skip("symlink not supported")
+
+    sequence_path = tmp_path / "0011"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010011.MP4"
+    source_path.write_text("video")
+
+    target_path = tmp_path / "target.mp4"
+    target_path.write_text("target")
+    symlink_path = tmp_path / "GH010011.MP4"
+    try:
+        os.symlink(target_path, symlink_path)
+    except OSError:
+        pytest.skip("symlink creation not permitted")
+
+    responses = iter(["o", "c"])
+    bash_calls = []
+
+    def fail_probe(_source):
+        raise AssertionError("probe should not be called")
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
+    monkeypatch.setattr(video, "probeVideo", fail_probe)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: bash_calls.append(True))
+
+    with pytest.raises(video.VideoConversionCancelled, match="Conversion cancelled"):
+        video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0011"])
+
+    assert not bash_calls
+
+
+def test_convert_videos_prompt_overwrite_directory(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0010"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010010.MP4"
+    source_path.write_text("video")
+    (tmp_path / "GH010010.MP4").mkdir()
+
+    responses = iter(["o", "c"])
+    bash_calls = []
+
+    def fail_probe(_source):
+        raise AssertionError("probe should not be called")
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
+    monkeypatch.setattr(video, "probeVideo", fail_probe)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: bash_calls.append(True))
+
+    with pytest.raises(video.VideoConversionCancelled, match="Conversion cancelled"):
+        video.convertVideos(str(tmp_path), "-c copy", 0.12, 25, 0.7, True, sequences=["0010"])
+
+    assert not bash_calls
 
 
 def test_cleanup_temporary_artifacts_removes_files(tmp_path):
