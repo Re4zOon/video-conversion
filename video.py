@@ -80,14 +80,14 @@ def resolve_output_destination(destination):
             return None
         if choice in {"o", "overwrite"}:
             # Only allow overwrite for regular files; disallow directories and other non-file paths.
-            if os.path.islink(destination):
+            path_stat = os.lstat(destination)
+            if stat.S_ISLNK(path_stat.st_mode):
                 logger.error(
                     "Cannot overwrite symlink '%s'. Please choose rename or cancel.",
                     sanitize_for_log(destination),
                 )
                 print("Cannot overwrite a symlink. Please choose rename or cancel.")
                 continue
-            path_stat = os.lstat(destination)
             if stat.S_ISDIR(path_stat.st_mode):
                 logger.error(
                     "Cannot overwrite existing directory '%s'. Please choose rename or cancel.",
