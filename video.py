@@ -7,6 +7,7 @@ import os
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -41,10 +42,15 @@ def sanitize_for_log(value):
     return str(value).replace("\n", "\\n").replace("\r", "\\r")
 
 
+def sanitize_for_display(value):
+    """Return a display-safe string with non-printable characters escaped."""
+    return str(value).encode("unicode_escape").decode("ascii")
+
+
 def resolve_output_destination(destination):
     """Resolve conflicts for output files, returning the chosen destination or None to cancel."""
     while os.path.lexists(destination):
-        display_destination = sanitize_for_log(destination)
+        display_destination = sanitize_for_display(destination)
         prompt = (
             f"Output file '{display_destination}' already exists. "
             "Choose [o]verwrite, [r]ename, or [c]ancel: "
@@ -59,14 +65,25 @@ def resolve_output_destination(destination):
             return None
         if choice in {"o", "overwrite"}:
             # Only allow overwrite for regular files; disallow directories and other non-file paths.
-            if os.path.isdir(destination):
+            try:
+                path_stat = os.lstat(destination)
+            except FileNotFoundError:
+                return destination
+            if stat.S_ISDIR(path_stat.st_mode):
                 logger.error(
                     "Cannot overwrite existing directory '%s'. Please choose rename or cancel.",
                     sanitize_for_log(destination),
                 )
                 print("Cannot overwrite a directory. Please choose rename or cancel.")
                 continue
-            if os.path.lexists(destination) and not os.path.isfile(destination):
+            if stat.S_ISLNK(path_stat.st_mode):
+                logger.error(
+                    "Cannot overwrite symlink '%s'. Please choose rename or cancel.",
+                    sanitize_for_log(destination),
+                )
+                print("Cannot overwrite a symlink. Please choose rename or cancel.")
+                continue
+            if not stat.S_ISREG(path_stat.st_mode):
                 logger.error(
                     "Cannot overwrite non-regular file '%s'. Please choose rename or cancel.",
                     sanitize_for_log(destination),
@@ -87,10 +104,21 @@ def resolve_output_destination(destination):
                 return None
             if not new_destination:
                 return None
-            if os.path.isabs(new_destination):
-                destination = new_destination
-            else:
-                destination = os.path.join(os.path.dirname(destination), new_destination)
+            if (
+                os.path.isabs(new_destination)
+                or os.path.sep in new_destination
+                or (os.path.altsep is not None and os.path.altsep in new_destination)
+            ):
+                print(
+                    "Invalid filename. Please enter a name without any directory path components."
+                )
+                logger.warning(
+                    "Rejected invalid rename target '%s' for destination '%s'.",
+                    sanitize_for_log(new_destination),
+                    sanitize_for_log(destination),
+                )
+                continue
+            destination = os.path.join(os.path.dirname(destination), new_destination)
             continue
         if choice in {"c", "cancel"}:
             return None
