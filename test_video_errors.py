@@ -56,6 +56,22 @@ def test_get_options_rejects_invalid_combo():
         video.getOptions("bad", "cpu")
 
 
+def test_arguments_requires_videos_without_tui(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["video.py"])
+
+    with pytest.raises(SystemExit):
+        video.arguments()
+
+
+def test_arguments_allows_tui_without_videos(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["video.py", "--tui"])
+
+    args = video.arguments()
+
+    assert args["tui"] is True
+    assert args["videos"] is None
+
+
 def test_probe_video_handles_missing_file(monkeypatch):
     def raise_missing(_source):
         raise FileNotFoundError("missing")
@@ -208,6 +224,45 @@ def test_convert_videos_resume_skips_existing_output(monkeypatch, tmp_path):
     assert not calls
 
 
+def test_convert_videos_reports_progress_for_resume_skip(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0004"
+    sequence_path.mkdir()
+    (sequence_path / "GH010004.MP4").write_text("video")
+    (tmp_path / "GH010004.MP4").write_text("existing")
+    events = []
+
+    def fake_listdir(path):
+        if path == str(tmp_path):
+            return ["0004"]
+        if path == str(sequence_path):
+            return ["GH010004.MP4"]
+        return []
+
+    monkeypatch.setattr(video.os, "listdir", fake_listdir)
+
+    video.convertVideos(
+        str(tmp_path),
+        "-c copy",
+        0.12,
+        25,
+        0.7,
+        True,
+        resume=True,
+        sequences=["0004"],
+        progress_callback=events.append,
+    )
+
+    assert events == [
+        {
+            "event": "skip",
+            "sequence": "0004",
+            "index": 1,
+            "total": 1,
+            "message": "Output already exists; resume skipped it.",
+        }
+    ]
+
+
 def test_convert_videos_resume_allows_conversion(monkeypatch, tmp_path):
     sequence_path = tmp_path / "0005"
     sequence_path.mkdir()
@@ -243,6 +298,41 @@ def test_convert_videos_resume_allows_conversion(monkeypatch, tmp_path):
     assert bash_calls
     assert replace_calls
     assert not video._TRACKED_PARTIAL_OUTPUTS
+
+
+def test_convert_videos_reports_start_and_done_progress(monkeypatch, tmp_path):
+    sequence_path = tmp_path / "0005"
+    sequence_path.mkdir()
+    source_path = sequence_path / "GH010005.MP4"
+    source_path.write_text("video")
+    events = []
+
+    video.reset_signal_state()
+    video._TRACKED_PARTIAL_OUTPUTS.clear()
+
+    monkeypatch.setattr(
+        video, "probeVideo", lambda _source: DummyProbe([DummyStream(), DummyStream()])
+    )
+    monkeypatch.setattr(video, "calculateBitrate", lambda *_args, **_kwargs: 1000)
+    monkeypatch.setattr(video, "bash_command", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(video.os, "replace", lambda *_args: None)
+    monkeypatch.setattr(video.shutil, "copystat", lambda *_args, **_kwargs: None)
+
+    video.convertVideos(
+        str(tmp_path),
+        "-c copy",
+        0.12,
+        25,
+        0.7,
+        True,
+        resume=True,
+        sequences=["0005"],
+        progress_callback=events.append,
+    )
+
+    assert [event["event"] for event in events] == ["start", "done"]
+    assert events[0]["index"] == 1
+    assert events[0]["total"] == 1
 
 
 def test_convert_videos_prompt_overwrite(monkeypatch, tmp_path):

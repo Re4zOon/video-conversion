@@ -2,6 +2,7 @@
 
 import argparse
 import atexit
+import curses
 import logging
 import os
 import shlex
@@ -305,7 +306,12 @@ def arguments():
         description="GoPro video compressor (prompts before overwriting output files)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("-v", "--videos", required=True, help="Path to the videos folder")
+    parser.add_argument("-v", "--videos", help="Path to the videos folder")
+    parser.add_argument(
+        "--tui",
+        action="store_true",
+        help="Launch an interactive terminal interface for selecting options",
+    )
     parser.add_argument(
         "-c",
         "--codec",
@@ -351,6 +357,8 @@ def arguments():
         help="Skip sequences that already have output files (no overwrite prompt)",
     )
     args = parser.parse_args()
+    if not args.tui and not args.videos:
+        parser.error("the following arguments are required unless --tui is used: -v/--videos")
     config = vars(args)
     return config
 
@@ -522,6 +530,7 @@ def convertVideos(
     convert,
     resume=False,
     sequences=None,
+    progress_callback=None,
 ):
 
     # Use provided sequences list or fall back to directory listing
@@ -536,7 +545,10 @@ def convertVideos(
 
     sanitized_sequences = [sanitize_for_log(sequence) for sequence in _listOfSequences]
     logger.info("List: %s", ", ".join(sanitized_sequences))
-    for sequence, sanitized_sequence in zip(_listOfSequences, sanitized_sequences, strict=True):
+    total_sequences = len(_listOfSequences)
+    for index, (sequence, sanitized_sequence) in enumerate(
+        zip(_listOfSequences, sanitized_sequences, strict=True), start=1
+    ):
         try:
             partial_destination = None
             conversion_successful = False
@@ -550,6 +562,14 @@ def convertVideos(
                 logger.info(
                     "Skipping sequence %s because output already exists (resume enabled).",
                     sanitized_sequence,
+                )
+                notify_progress(
+                    progress_callback,
+                    "skip",
+                    sanitized_sequence,
+                    index,
+                    total_sequences,
+                    "Output already exists; resume skipped it.",
                 )
                 continue
             if not resume:
@@ -572,6 +592,14 @@ def convertVideos(
                 )
             bitrate = calculateBitrate(source, bitratemodifier, mbits_max, ratio_max, probe=file)
             logger.info("Sequence: %s", sanitized_sequence)
+            notify_progress(
+                progress_callback,
+                "start",
+                sanitized_sequence,
+                index,
+                total_sequences,
+                "Starting conversion.",
+            )
 
             quoted_source = shlex.quote(source)
             quoted_destination = shlex.quote(partial_destination)
@@ -680,6 +708,14 @@ def convertVideos(
                         sanitized_destination,
                         sanitize_for_log(exc),
                     )
+                notify_progress(
+                    progress_callback,
+                    "done",
+                    sanitized_sequence,
+                    index,
+                    total_sequences,
+                    f"Finished {os.path.basename(destination)}.",
+                )
             finally:
                 if concat_path:
                     cleanup_tracked_path(concat_path, "temporary concat file", unregister_temp_file)
@@ -719,6 +755,202 @@ def getOptions(codec, accelerator):
     return options
 
 
+def notify_progress(callback, event, sequence, index, total, message):
+    """Report conversion progress to optional callers such as the TUI."""
+    if callback is None:
+        return
+    callback(
+        {
+            "event": event,
+            "sequence": sequence,
+            "index": index,
+            "total": total,
+            "message": message,
+        }
+    )
+
+
+def validate_videos_path(videos_path):
+    sanitized_path = sanitize_for_log(videos_path)
+    if not os.path.exists(videos_path):
+        raise VideoConversionError(f"The specified path does not exist: {sanitized_path}")
+    if not os.path.isdir(videos_path):
+        raise VideoConversionError(f"The specified path is not a directory: {sanitized_path}")
+
+
+def run_conversion(config, progress_callback=None):
+    videos_path = config["videos"]
+    validate_videos_path(videos_path)
+
+    try:
+        contents = os.listdir(videos_path)
+        contents.sort()
+    except OSError as exc:
+        raise VideoConversionError(f"Unable to list contents of '{videos_path}': {exc}") from exc
+
+    sequences = videostofolders(contents, videos_path)
+    if not sequences:
+        logger.info("No video sequences to convert. Exiting.")
+        notify_progress(
+            progress_callback,
+            "done",
+            "",
+            0,
+            0,
+            "No video sequences to convert.",
+        )
+        return
+
+    options = getOptions(config["codec"], config["accelerator"])
+    convertVideos(
+        videos_path,
+        options,
+        config["bitratemodifier"],
+        config["mbits_max"],
+        config["ratio_max"],
+        config["convert"],
+        resume=config["resume"],
+        sequences=sequences,
+        progress_callback=progress_callback,
+    )
+
+
+class TuiLogHandler(logging.Handler):
+    def __init__(self, messages):
+        super().__init__()
+        self.messages = messages
+
+    def emit(self, record):
+        self.messages.append(self.format(record))
+        del self.messages[:-8]
+
+
+def draw_tui(stdscr, config, selected, messages, progress):
+    stdscr.erase()
+    height, width = stdscr.getmaxyx()
+    fields = [
+        ("Videos folder", config["videos"]),
+        ("Codec", config["codec"]),
+        ("Accelerator", config["accelerator"]),
+        ("Convert", "yes" if config["convert"] else "no"),
+        ("Resume", "yes" if config["resume"] else "no"),
+        ("Start conversion", ""),
+        ("Quit", ""),
+    ]
+    title = "GoPro Video Compressor"
+    stdscr.addnstr(0, 2, title, max(0, width - 4), curses.A_BOLD)
+    stdscr.addnstr(
+        1,
+        2,
+        "Use arrows to move, Enter to edit/toggle/start, q to quit.",
+        max(0, width - 4),
+    )
+
+    for row, (label, value) in enumerate(fields, start=3):
+        attr = curses.A_REVERSE if row - 3 == selected else curses.A_NORMAL
+        line = f"{label}: {value}" if value else label
+        stdscr.addnstr(row, 2, line, max(0, width - 4), attr)
+
+    progress_row = 11
+    total = progress["total"]
+    index = progress["index"]
+    if total:
+        bar_width = max(10, min(40, width - 20))
+        filled = int(bar_width * index / total)
+        bar = "#" * filled + "-" * (bar_width - filled)
+        progress_text = f"[{bar}] {index}/{total} {progress['sequence']}"
+    else:
+        progress_text = progress["message"]
+    stdscr.addnstr(progress_row, 2, progress_text, max(0, width - 4))
+
+    log_start = progress_row + 2
+    stdscr.addnstr(log_start, 2, "Messages", max(0, width - 4), curses.A_BOLD)
+    for offset, message in enumerate(messages[-8:], start=1):
+        if log_start + offset >= height - 1:
+            break
+        stdscr.addnstr(log_start + offset, 2, sanitize_for_display(message), max(0, width - 4))
+    stdscr.refresh()
+
+
+def prompt_tui_input(stdscr, prompt, current):
+    curses.echo()
+    height, width = stdscr.getmaxyx()
+    row = height - 2
+    stdscr.move(row, 0)
+    stdscr.clrtoeol()
+    stdscr.addnstr(row, 2, f"{prompt} [{current}]: ", max(0, width - 4))
+    value = stdscr.getstr(row, min(width - 1, len(prompt) + len(str(current)) + 7))
+    curses.noecho()
+    decoded = value.decode(errors="replace").strip()
+    return decoded or current
+
+
+def run_tui(initial_config):
+    config = initial_config.copy()
+    config["videos"] = config.get("videos") or os.getcwd()
+    messages = []
+    progress = {"index": 0, "total": 0, "sequence": "", "message": "Ready."}
+
+    def progress_callback(event):
+        progress.update(
+            {
+                "index": event["index"],
+                "total": event["total"],
+                "sequence": event["sequence"],
+                "message": event["message"],
+            }
+        )
+        messages.append(event["message"])
+        del messages[:-8]
+
+    def app(stdscr):
+        selected = 0
+        logger_handler = TuiLogHandler(messages)
+        logger_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+        logger.addHandler(logger_handler)
+        try:
+            curses.curs_set(0)
+            while True:
+                draw_tui(stdscr, config, selected, messages, progress)
+                key = stdscr.getch()
+                if key in (ord("q"), ord("Q")):
+                    return 0
+                if key in (curses.KEY_UP, ord("k")):
+                    selected = (selected - 1) % 7
+                    continue
+                if key in (curses.KEY_DOWN, ord("j")):
+                    selected = (selected + 1) % 7
+                    continue
+                if key not in (curses.KEY_ENTER, ord("\n"), ord("\r")):
+                    continue
+                if selected == 0:
+                    config["videos"] = prompt_tui_input(stdscr, "Videos folder", config["videos"])
+                elif selected == 1:
+                    config["codec"] = "h264" if config["codec"] == "h265" else "h265"
+                elif selected == 2:
+                    config["accelerator"] = "cpu" if config["accelerator"] == "qsv" else "qsv"
+                elif selected == 3:
+                    config["convert"] = not config["convert"]
+                elif selected == 4:
+                    config["resume"] = not config["resume"]
+                elif selected == 5:
+                    try:
+                        messages.append("Starting conversion. Press Ctrl+C to stop.")
+                        run_conversion(config, progress_callback=progress_callback)
+                        messages.append("Conversion finished.")
+                    except VideoConversionCancelled as exc:
+                        messages.append(f"Cancelled: {exc}")
+                    except VideoConversionError as exc:
+                        messages.append(f"Error: {exc}")
+                    progress["message"] = "Ready."
+                elif selected == 6:
+                    return 0
+        finally:
+            logger.removeHandler(logger_handler)
+
+    return curses.wrapper(app)
+
+
 if __name__ == "__main__":
     if sys.version_info < (3, 10):  # noqa: UP036 — runtime guard for direct script execution
         print("Error: Python 3.10 or later is required.", file=sys.stderr)
@@ -729,45 +961,9 @@ if __name__ == "__main__":
         reset_signal_state()
         configure_signal_handlers()
         args = arguments()
-
-        # Validate that the videos path exists and is a directory
-        videos_path = args["videos"]
-        sanitized_path = sanitize_for_log(videos_path)
-        if not os.path.exists(videos_path):
-            logger.error("The specified path does not exist: %s", sanitized_path)
-            sys.exit(1)
-        if not os.path.isdir(videos_path):
-            logger.error("The specified path is not a directory: %s", sanitized_path)
-            sys.exit(1)
-
-        try:
-            contents = os.listdir(args["videos"])
-            contents.sort()
-        except OSError as exc:
-            raise VideoConversionError(
-                f"Unable to list contents of '{videos_path}': {exc}"
-            ) from exc
-
-        # videostofolders now returns the list of sequences
-        sequences = videostofolders(contents, args["videos"])
-
-        # Skip conversion if there are no sequences to process
-        if not sequences:
-            logger.info("No video sequences to convert. Exiting.")
-            sys.exit(0)
-
-        options = getOptions(args["codec"], args["accelerator"])
-
-        convertVideos(
-            args["videos"],
-            options,
-            args["bitratemodifier"],
-            args["mbits_max"],
-            args["ratio_max"],
-            args["convert"],
-            resume=args["resume"],
-            sequences=sequences,
-        )
+        if args["tui"]:
+            sys.exit(run_tui(args))
+        run_conversion(args)
     except VideoConversionCancelled as exc:
         logger.info("Conversion cancelled by user: %s", sanitize_for_log(exc))
         sys.exit(1)

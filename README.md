@@ -65,11 +65,18 @@ pip install -r requirements-dev.txt
 python video.py -v /path/to/videos [options]
 ```
 
+For an interactive terminal interface:
+
+```bash
+python video.py --tui
+```
+
 ### Arguments
 
 | Argument | Short | Default | Description |
 |----------|-------|---------|-------------|
 | `--videos` | `-v` | *required* | Path to the videos folder |
+| `--tui` |  | disabled | Launch a terminal interface for choosing a folder and conversion options |
 | `--codec` | `-c` | `h265` | Video codec (`h265` or `h264`) |
 | `--accelerator` | `-a` | `qsv` | Encoding method (`qsv` for Intel QuickSync, `cpu` for software) |
 | `--convert` | `-C` | enabled | Disable to skip video conversion (concatenate only) |
@@ -99,6 +106,27 @@ Set maximum bitrate to 15 Mbps:
 ```bash
 python video.py -v /path/to/videos -mx 15
 ```
+
+Open the terminal interface:
+```bash
+python video.py --tui
+```
+
+### Terminal Interface
+
+The TUI uses the Python standard-library `curses` module and does not require extra
+dependencies. It provides:
+
+- Video folder selection
+- H.265/H.264 codec choice
+- QSV/CPU accelerator choice
+- Conversion and resume toggles
+- Start/quit controls
+- Sequence progress and runtime error messages
+
+Use the arrow keys to move between fields, `Enter` to edit or toggle a value, and
+`q` to quit. While a conversion is running, use `Ctrl+C` to stop; temporary and
+partial files are cleaned up the same way as the CLI mode.
 
 ### Interruptions and Resume
 
