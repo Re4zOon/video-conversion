@@ -16,13 +16,13 @@ A Python tool for organizing and compressing GoPro videos using FFmpeg. It autom
 ### System Requirements
 
 - Python 3.10+ (uses match-case syntax)
-- FFmpeg with QSV support (for hardware acceleration)
-- Linux/Unix environment (uses bash commands)
+- Linux/Unix shell environment (the script uses `/bin/bash` for video commands)
+- Enough free disk space for temporary concat files and converted output files
 
 ### Python Dependencies
 
 ```bash
-pip install ffprobe-python
+python -m pip install -r requirements.txt
 ```
 
 ### Development Dependencies
@@ -33,31 +33,66 @@ pip install -r requirements-dev.txt
 
 ### External Tools
 
-- **ffmpeg**: Video processing
-- **exiftool**: Metadata handling
-- **udtacopy** (optional): GoPro telemetry data copying
+- **ffmpeg**: Required for concatenation and conversion
+- **exiftool**: Required for copying timestamps and metadata back to converted files
+- **Intel Media Driver / VA-API tools**: Required only when using the default `--accelerator qsv`
+- **udtacopy**: Optional; used when copying GoPro telemetry data in concat-only mode
 
 ## Installation
 
-1. Clone the repository:
+1. Install system packages.
+
+   Debian/Ubuntu:
    ```bash
-   git clone https://github.com/Re4zOon/video-conversion.git
+   sudo apt update
+   sudo apt install python3 python3-venv python3-pip ffmpeg libimage-exiftool-perl
+   ```
+
+   Fedora:
+   ```bash
+   sudo dnf install python3 python3-pip ffmpeg perl-Image-ExifTool
+   ```
+
+   macOS with Homebrew:
+   ```bash
+   brew install python ffmpeg exiftool
+   ```
+
+   If you plan to use Intel Quick Sync Video (the default accelerator), also install the Intel media driver for your distribution. On Ubuntu this is commonly:
+   ```bash
+   sudo apt install vainfo intel-media-va-driver-non-free
+   ```
+
+2. Clone the repository:
+   ```bash
+   git clone https://github.com/re4zoon-team/video-conversion.git
    cd video-conversion
    ```
 
-2. Install Python dependencies:
+3. Create and activate a virtual environment:
    ```bash
-   pip install -r requirements.txt
+   python3 -m venv .venv
+   source .venv/bin/activate
+   python -m pip install --upgrade pip
    ```
 
-3. Ensure FFmpeg and exiftool are installed:
+4. Install Python dependencies:
    ```bash
-   # Debian/Ubuntu
-   sudo apt install ffmpeg exiftool
-   
-   # Fedora
-   sudo dnf install ffmpeg perl-Image-ExifTool
+   python -m pip install -r requirements.txt
    ```
+
+5. Verify the installation:
+   ```bash
+   python --version
+   python -c "from ffprobe import FFProbe; print('ffprobe-python OK')"
+   ffmpeg -version
+   exiftool -ver
+   python video.py --help
+   ```
+
+6. Choose an accelerator before the first long conversion:
+   - Use the default `-a qsv` only on systems with Intel Quick Sync support and working VA-API drivers.
+   - Use `-a cpu` when QSV is not available or when you want the most portable option.
 
 ## Docker Deployment
 
@@ -228,24 +263,114 @@ videos_folder/            # After: organized and converted
 
 ## Troubleshooting
 
-### Intel QSV Not Working
+### `ffmpeg: command not found`
 
-Ensure Intel Media Driver is installed:
+Install FFmpeg with your package manager, then open a new shell and run:
 ```bash
-# Check for VA-API support
-vainfo
+ffmpeg -version
+```
 
-# Install Intel media driver (Ubuntu)
+If the command still is not found, confirm that the installation directory is on your `PATH`.
+
+### `exiftool: command not found`
+
+Install ExifTool, then verify it:
+```bash
+exiftool -ver
+```
+
+Package names vary by platform:
+- Debian/Ubuntu: `libimage-exiftool-perl`
+- Fedora: `perl-Image-ExifTool`
+- macOS/Homebrew: `exiftool`
+
+### `ModuleNotFoundError: No module named 'ffprobe'`
+
+Install the Python dependencies in the same environment that runs the script:
+```bash
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -c "from ffprobe import FFProbe; print('ffprobe-python OK')"
+```
+
+If you are not using a virtual environment, replace `python` with the exact interpreter used to run `video.py`.
+
+### Permission denied errors
+
+The tool needs read/write access to the videos folder because it organizes source files into sequence folders and writes converted output files next to them.
+
+Check ownership and permissions:
+```bash
+ls -ld /path/to/videos
+ls -l /path/to/videos | head
+```
+
+Run the tool from a user account that owns the files, or copy the GoPro files into a writable working folder before converting. Avoid running with `sudo` unless the video folder is intentionally root-owned, because root-created output files can cause later permission problems.
+
+### Intel QSV not working
+
+The default accelerator is `qsv`. If your system does not have Intel Quick Sync support or the media driver is missing, FFmpeg may fail with encoder or device errors.
+
+Check VA-API and QSV encoder support:
+```bash
+vainfo
+ffmpeg -hide_banner -encoders | grep -E 'qsv|hevc_qsv|h264_qsv'
+```
+
+Install the Intel media driver if needed:
+```bash
 sudo apt install intel-media-va-driver-non-free
 ```
+
+If hardware encoding is still unavailable, rerun with software encoding:
+```bash
+python video.py -v /path/to/videos -a cpu
+```
+
+Software encoding is slower, but it avoids QSV driver and hardware requirements.
 
 ### "More than 2 streams, but no bin_data"
 
 This error occurs when a video has additional streams that aren't recognized as GoPro telemetry. The tool expects stream index 3 to be `bin_data` for GoPro files with telemetry.
 
+Try these options:
+- Confirm the input files are original GoPro MP4 files and were not modified by another editor first.
+- Use `ffprobe /path/to/file.MP4` to inspect the stream layout.
+- Run with `-C` to concatenate without re-encoding if you only need a joined file.
+- Open an issue with the `ffprobe` stream output if the file is from a supported GoPro camera but still fails.
+
 ### Metadata copy warnings
 
 If file metadata (timestamps/permissions) cannot be copied after conversion, the tool logs a warning but keeps the converted output file.
+
+Common causes include read-only files, restrictive directory permissions, files stored on network drives, or missing ExifTool. Verify `exiftool -ver` and test in a local writable folder if the warning appears on external storage.
+
+### Conversion was interrupted
+
+Pressing `Ctrl+C` or receiving `SIGTERM` removes tracked temporary files and partial outputs. To continue later, rerun with:
+```bash
+python video.py -v /path/to/videos --resume
+```
+
+The resume option skips sequences that already have output files. It does not continue from the middle of a partially encoded file because FFmpeg restarts interrupted conversions from the beginning.
+
+### Existing output file prompt appears
+
+When a target output file already exists, choose overwrite, rename, or cancel at the prompt. For unattended reruns, use `--resume` to skip completed outputs instead of prompting.
+
+### Need more detail for debugging
+
+Enable debug logging:
+```bash
+GOPRO_LOG_LEVEL=DEBUG python video.py -v /path/to/videos -a cpu
+```
+
+When asking for help, include:
+- The command you ran
+- Your operating system and Python version
+- `ffmpeg -version`
+- `exiftool -ver`
+- The full error message or debug log excerpt
 
 ## License
 
