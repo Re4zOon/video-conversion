@@ -59,6 +59,52 @@ pip install -r requirements-dev.txt
    sudo dnf install ffmpeg perl-Image-ExifTool
    ```
 
+## Docker Deployment
+
+Build the container image from the repository root:
+
+```bash
+docker build -t video-conversion .
+```
+
+Run the converter by bind-mounting a host folder at `/data`. CPU encoding is the
+most portable option:
+
+```bash
+docker run --rm -it \
+  -v "$PWD/videos:/data" \
+  video-conversion -v /data -a cpu
+```
+
+The image uses `python /app/video.py` as its entry point, so any CLI option can be
+passed directly after the image name:
+
+```bash
+docker run --rm -it \
+  -v "$PWD/videos:/data" \
+  video-conversion -v /data -c h264 -a cpu --resume
+```
+
+For Intel Quick Sync Video acceleration on Linux hosts, pass the DRM device into
+the container and keep the default `qsv` accelerator:
+
+```bash
+docker run --rm -it \
+  --device /dev/dri:/dev/dri \
+  -v "$PWD/videos:/data" \
+  video-conversion -v /data
+```
+
+If the mounted video folder is not writable by the container's default user, run
+with your host user and group IDs:
+
+```bash
+docker run --rm -it \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD/videos:/data" \
+  video-conversion -v /data -a cpu
+```
+
 ## Usage
 
 ```bash
